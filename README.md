@@ -31,11 +31,29 @@ The package uses Laravel's auto-discovery — no manual provider registration ne
 
 ---
 
-## 🔑 SSH Prerequisite
+## ✅ Prerequisites
 
-> **ShipIt requires a passwordless SSH connection to your Hostinger server before first use.**
->
-> Your local machine must be able to connect to Hostinger over SSH **without being asked for a password or passphrase**. If that's not set up yet, [see the SSH Setup Guide ↓](#-ssh-setup-guide).
+Before using ShipIt, make sure both of the following are in place on your Hostinger account:
+
+### 🔑 Passwordless SSH Connection
+
+ShipIt communicates with your server entirely over SSH. Your local machine must be able to connect **without being asked for a password or passphrase**.
+
+If that's not set up yet, [see the SSH Setup Guide ↓](#-ssh-setup-guide)
+
+---
+
+### ⚙️ PHP `exec` Must Be Enabled
+
+ShipIt runs remote shell commands via PHP's `exec()` function. Hostinger disables it by default — you must remove it from the disabled functions list before ShipIt can operate.
+
+**hPanel → your website → Advanced → PHP Configuration → PHP Options → Disable Functions**
+
+Find `exec` in the list and remove it, then save.
+
+> 📖 **Official guide:** [How to Enable Disabled PHP Functions in Hostinger → hostinger.com](https://www.hostinger.com/support/3212034-how-to-enable-disabled-php-functions-in-hostinger/)
+
+> ⚠️ Without this, ShipIt will silently fail during the server sync phase regardless of SSH or any other configuration being correct.
 
 ---
 
