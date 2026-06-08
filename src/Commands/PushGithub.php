@@ -17,7 +17,7 @@ class PushGithub extends BasePushCommand
 
     protected $description = 'Compiles production frontend assets locally and executes the Git push wizard.';
 
-    private const INITIAL_COMMIT_MESSAGE = 'Version 1.0.0 - Initial version';
+    private const INITIAL_COMMIT_MESSAGE = 'Version 0.0.1 - Initial version';
 
     public function handle(): int
     {
@@ -97,7 +97,7 @@ class PushGithub extends BasePushCommand
             $this->warn('⚠️  Uncommitted modifications detected in your working directory:');
             $this->printFormattedOutput('Changed Files', $status->output());
 
-            $msg = $this->ask('Enter a commit message for these changes', 'Incremental updates');
+            $msg = $this->ask('Enter a commit message for these changes', 'chore(deploy): automated sync via ShipIt 🚀');
             if (empty($msg) || trim($msg) === '') {
                 $this->error('❌ Deployment stopped. A clean commit description is mandatory.');
                 return false;
