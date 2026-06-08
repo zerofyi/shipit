@@ -48,7 +48,7 @@ Add the following to your local `.env` file:
 # GitHub
 # ------------------------------------------------------------------------------
 GITHUB_REPO_URL=https://github.com/your-username/your-repo.git
-GITHUB_API_TOKEN=ghp_yourPersonalAccessTokenHere
+# GITHUB_API_TOKEN=
 
 # ------------------------------------------------------------------------------
 # Hostinger
@@ -58,6 +58,10 @@ HOSTINGER_SSH_USERNAME=u123456789
 HOSTINGER_SSH_PORT=65002
 HOSTINGER_SITE_DIR=yourdomain.com
 ```
+
+> 💡 `GITHUB_API_TOKEN` is **optional**. If your repository is **private** and you want ShipIt to handle GitHub deploy key registration fully automatically — with no manual steps — add a Fine-grained Personal Access Token here. [See how to generate one ↓](#generating-a-github-fine-grained-token)
+
+> 📡 Not sure where to find your Hostinger SSH details? [See Step 1 of the SSH Setup Guide ↓](#step-1--enable-ssh-in-hpanel)
 
 > 🔒 `HOSTINGER_SITE_DIR` is validated against path traversal payloads (`..`, `/`, `\`) before any remote operation runs.
 
@@ -74,7 +78,7 @@ php artisan push:hostinger
 The master deployment command. Builds assets locally, commits and pushes to GitHub, then syncs your server and runs all remote optimizations in one shot.
 
 | Flag | Description |
-|------|-------------|
+|:---|:---|
 | `--dry-run` | Simulates the entire pipeline — checks environments, builds assets, and tests the server connection — without touching your live server. Perfect for testing before a real deploy. |
 | `--debug` | Prints raw network payloads, shell command statuses, and step-by-step error traces directly in your terminal. |
 
@@ -89,7 +93,7 @@ php artisan push:github
 Standalone Git command. Scans for uncommitted changes, prompts for a commit message, and pushes to your remote branch.
 
 | Flag | Description |
-|------|-------------|
+|:---|:---|
 | `--dry-run` | Checks your uncommitted changes and active branch, but halts before staging or committing anything. |
 | `--debug` | Streams raw Git execution output directly to your terminal. |
 | `--skip-assets` | Bypasses local asset compilation (`npm run build`). Used internally by `push:hostinger` to ensure assets are only built once per full run. |
@@ -120,19 +124,21 @@ Standalone Git command. Scans for uncommitted changes, prompts for a commit mess
 
 > One-time setup. Once done, ShipIt connects to your server automatically on every deploy.
 
-**Official Hostinger reference:** [How to Set Up SSH Keys → hostinger.com](https://www.hostinger.com/tutorials/how-to-set-up-ssh-keys)
+**Official Hostinger reference:** [How to Generate SSH Keys and Add Them to hPanel → hostinger.com](https://www.hostinger.com/support/5634532-how-to-generate-ssh-keys-and-add-them-to-hostinger-hpanel)
 
 ---
 
 ### Step 1 — Enable SSH in hPanel
 
-Log into **hPanel → SSH Access** and make sure SSH is enabled for your plan. Your SSH host, username, and port are listed here — copy them into your `.env`.
+Log into **hPanel → SSH Access** and make sure SSH is enabled for your plan. Your SSH host, username, and port are all listed on this page — copy them into your `.env`.
+
+![Hostinger hPanel SSH Access details](https://www.hostinger.com/support/wp-content/uploads/sites/55/2025/01/d593f05f-2b9b-4aad-ad23-909d52047d12.jpg)
 
 ---
 
 ### Step 2 — Generate an SSH Key Pair
 
-Run **one** of these commands depending on your preferred key type:
+Run **one** of these commands on your local machine:
 
 **Ed25519** (recommended — modern, faster):
 ```bash
@@ -144,7 +150,7 @@ ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519 -C "shipit"
 ssh-keygen -t rsa -b 4096 -N "" -f ~/.ssh/id_rsa -C "shipit"
 ```
 
-The `-N ""` flag sets an **empty passphrase** automatically — no prompts, no hanging.
+The `-N ""` flag sets an empty passphrase automatically — no prompts, no hanging.
 
 ---
 
@@ -181,6 +187,35 @@ ssh -p YOUR_SSH_PORT YOUR_SSH_USERNAME@YOUR_SSH_HOST
 If you land in the remote shell **with no password prompt**, you're all set. ShipIt is ready to deploy.
 
 > If it still asks for a password, confirm the correct key was saved in hPanel and that SSH is enabled on your plan.
+
+---
+
+## 🔐 Generating a GitHub Fine-Grained Token
+
+A Fine-grained Personal Access Token is required **only if your repository is private** and you want ShipIt to register the server's deploy key on GitHub automatically without any manual steps.
+
+**1. Go to GitHub token settings:**
+[https://github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new)
+
+**2. Fill in the basics:**
+- **Token name** — e.g. `shipit-deploy`
+- **Expiration** — set to your comfort level (90 days recommended)
+- **Resource owner** — select your account or org
+
+**3. Under Repository access:**
+- Choose **Only select repositories**
+- Select the specific repo ShipIt will deploy
+
+**4. Under Permissions → Repository permissions:**
+- Find **Administration** and set it to **Read and Write**
+
+> This is the only permission ShipIt needs — it uses it solely to register the server's deploy key on your repo so the server can pull code.
+
+**5. Click Generate token**, copy it immediately, and add it to your `.env`:
+
+```env
+GITHUB_API_TOKEN=github_pat_yourTokenHere
+```
 
 ---
 
