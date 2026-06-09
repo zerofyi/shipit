@@ -329,7 +329,18 @@ class PushHostinger extends BasePushCommand
             "Install Dependencies"          => "cd '{$absolutePath}' && composer install --no-dev --optimize-autoloader --no-interaction",
             "Setup Environment Config"      => "cd '{$absolutePath}' && if [ -f .env ]; then echo '👉 INFO: .env file already exists on Hostinger. Skipping creation safely.'; else if [ -f .env.example ]; then cp .env.example .env && php artisan key:generate --quiet && echo '✅ SUCCESS: Created fresh .env from .env.example'; else echo '⚠️ WARNING: .env.example is missing! Could not auto-generate .env'; fi; fi",
             "Run Migrations"               => "cd '{$absolutePath}' && php artisan migrate --force",
-            "Setup Storage Link"           => "cd '{$absolutePath}' && if [ ! -L public/storage ] && [ ! -d public/storage ]; then php artisan storage:link; fi",
+
+            // 🔍 Intelligent real-time decision-making with output capturing
+            "Setup Storage Link"           => "cd '{$absolutePath}' && " .
+                                            "if [ -L public/storage ]; then " .
+                                            "    echo '👉 INFO: A symbolic link already exists at public/storage. Skipping creation.'; " .
+                                            "elif [ -d public/storage ]; then " .
+                                            "    echo '⚠️ WARNING: A physical directory already exists at public/storage! Laravel needs this path to be clear to map the link.'; " .
+                                            "else " .
+                                            "    echo '⚡ ACTION: No existing link found. Running fresh artisan storage:link command now...'; " .
+                                            "    php artisan storage:link 2>&1; " .
+                                            "fi",
+
             "Setup Public HTML Symlink"    => "cd '{$absolutePath}' && rm -rf public_html && ln -sfn public public_html",
             "Clear Optimization Cache"     => "cd '{$absolutePath}' && php artisan optimize:clear",
             "Warm Production Cache"        => "cd '{$absolutePath}' && php artisan optimize"
@@ -343,12 +354,26 @@ class PushHostinger extends BasePushCommand
             if (!$process->successful()) {
                 $this->line('');
                 $this->error("❌ Fatal Circuit-Breaker: Optimization step failed at [{$taskName}]. Stopping deployment.");
-                $this->printFormattedOutput("{$taskName} Error Trace Log", $process->errorOutput());
+                // Displays stderr output, falls back to stdout if stderr is empty
+                $errorLog = !empty($process->errorOutput()) ? $process->errorOutput() : $process->output();
+                $this->printFormattedOutput("{$taskName} Error Trace Log", $errorLog);
                 return false;
             } else {
                 $this->info("   ↳ Step [{$taskName}] completed successfully.");
-                if ($this->option('debug')) {
-                    $this->printFormattedOutput("{$taskName} Output Trace", $process->output());
+
+                $outputTrimmed = trim($process->output());
+
+                // 🎛️ Intelligent Output Rules
+                if ($taskName === "Setup Storage Link" && !$this->option('debug') && !empty($outputTrimmed)) {
+                    // In standard mode, always print out ShipIt's custom real-time decision message
+                    $this->line($outputTrimmed);
+                } elseif ($this->option('debug')) {
+                    // In debug mode, show exactly what the command did along with its complete, raw response trace
+                    $this->line("<comment>[DEBUG] Command Sent:</comment> {$commandString}");
+                    $this->printFormattedOutput(
+                        "{$taskName} Output Trace",
+                        !empty($outputTrimmed) ? $outputTrimmed : "[Command completed with a silent/empty output buffer]"
+                    );
                 }
             }
         }
