@@ -329,8 +329,8 @@ class PushHostinger extends BasePushCommand
             "Install Dependencies"          => "cd '{$absolutePath}' && composer install --no-dev --optimize-autoloader --no-interaction",
             "Setup Environment Config"      => "cd '{$absolutePath}' && if [ -f .env ]; then echo '👉 INFO: .env file already exists on Hostinger. Skipping creation safely.'; else if [ -f .env.example ]; then cp .env.example .env && php artisan key:generate --quiet && echo '✅ SUCCESS: Created fresh .env from .env.example'; else echo '⚠️ WARNING: .env.example is missing! Could not auto-generate .env'; fi; fi",
             "Run Migrations"               => "cd '{$absolutePath}' && php artisan migrate --force",
-
-            // 🔍 Intelligent real-time decision-making with output capturing
+            
+            // Intelligent real-time decision-making with output capturing
             "Setup Storage Link"           => "cd '{$absolutePath}' && " .
                                             "if [ -L public/storage ]; then " .
                                             "    echo '👉 INFO: A symbolic link already exists at public/storage. Skipping creation.'; " .
@@ -346,29 +346,106 @@ class PushHostinger extends BasePushCommand
             "Warm Production Cache"        => "cd '{$absolutePath}' && php artisan optimize"
         ];
 
+        $nonCriticalTasks = [
+            "Setup Environment Config",
+            "Setup Storage Link",
+            "Setup Public HTML Symlink",
+            "Clear Optimization Cache",
+            "Warm Production Cache"
+        ];
+
+        $manualFixSuggestions = [
+            "Setup Environment Config"   => "Manually create your `.env` file in the repository root and run: php artisan key:generate",
+            "Setup Storage Link"         => "Create the symlink manually using raw Linux streams: ln -sfn ../storage/app/public public/storage",
+            "Setup Public HTML Symlink"  => "Link your public folder to the web root folder manually: ln -sfn public public_html",
+            "Clear Optimization Cache"   => "Clear your application cache manually directly on the host: php artisan cache:clear",
+            "Warm Production Cache"      => "Optimize your framework configurations manually: php artisan optimize"
+        ];
+
         foreach ($remoteCommands as $taskName => $commandString) {
             $this->debug("Executing task: {$taskName}");
             $execCmd = "{$sshBase} " . escapeshellarg($commandString);
             $process = Process::timeout(self::PROCESS_TIMEOUT)->run($execCmd);
 
-            if (!$process->successful()) {
+            $errorLog = !empty($process->errorOutput()) ? $process->errorOutput() : $process->output();
+            $outputTrimmed = trim($process->output());
+
+            // Flag to track if we encountered a hidden internal script error inside an exit code 0
+            $hasInternalError = (in_array($taskName, $nonCriticalTasks) && str_contains($outputTrimmed, 'Call to undefined function'));
+
+            // 🔴 CONDITION: Command shell reported failure OR returned a masked framework crash output
+            if (!$process->successful() || $hasInternalError) {
+                
+                // Handle the Storage Link specific recovery wizard flow
+                if ($taskName === "Setup Storage Link") {
+                    $this->line('');
+                    $this->warn("⚠️  WARNING: Optimization step [{$taskName}] failed due to host engine environment constraints.");
+                    $this->error("❌ Framework Error: The server blocked storage link generation (Likely 'exec' or 'symlink' functions are disabled via php.ini).");
+                    
+                    $this->printFormattedOutput("{$taskName} Environment Exception Log", $hasInternalError ? $outputTrimmed : $errorLog);
+                    
+                    // 🤖 INTERACTIVE WIZARD: Request permissions to run native OS fallback streaming overrides
+                    if ($this->confirm("👉 Framework automation failed. Would you like ShipIt to execute a native Linux stream fallback override via SSH?", true)) {
+                        $this->info("⚡ Initializing Native OS Stream Override Pipeline...");
+                        
+                        $fallbackCmdString = "cd '{$absolutePath}' && ln -sfn ../storage/app/public public/storage 2>&1";
+                        $fallbackExec = "{$sshBase} " . escapeshellarg($fallbackCmdString);
+                        $fallbackProcess = Process::timeout(self::PROCESS_TIMEOUT)->run($fallbackExec);
+                        
+                        if ($fallbackProcess->successful()) {
+                            $this->info("✅ SUCCESS: Native OS link override established successfully!");
+                            $this->line("<fg=green>   ↳ Reference mapped: public/storage -> ../storage/app/public</fg=green>\n");
+                            continue; // Recovery script worked, advance securely to next step
+                        } else {
+                            $this->error("❌ Error: Native OS override execution rejected by server security policy layers.");
+                            $fallbackError = !empty($fallbackProcess->errorOutput()) ? $fallbackProcess->errorOutput() : $fallbackProcess->output();
+                            $this->printFormattedOutput("Native Override Trace Log", $fallbackError);
+                        }
+                    }
+                    
+                    // 📘 RECOVERY GUIDE: Render clean fallback directions if interactive validation is skipped/failed
+                    $this->line('');
+                    $this->line("<fg=yellow>============= MANUAL RESOLUTION ARCHITECTURE GUIDE =============</fg=yellow>");
+                    $this->line("<fg=yellow>1. Resolve this via hPanel or your server manager by enabling 'exec' inside the 'disable_functions' directive and re-running ShipIt.</fg=yellow>");
+                    $this->line("<fg=yellow>2. Alternatively, log into your manual SSH terminal prompt and fire this raw terminal line directly:</fg=yellow>");
+                    $this->line("<fg=cyan>   ln -sfn ../storage/app/public public/storage</fg=cyan>");
+                    $this->line("<fg=yellow>================================================================</fg=yellow>");
+                    $this->line('');
+                    
+                    $this->line("<info>skip ⏭️  Non-critical step bypassed. Continuing deployment pipeline safely...</info>\n");
+                    continue;
+                }
+
+                // Handle generic Soft-Failures for other Non-Critical Tasks
+                if (in_array($taskName, $nonCriticalTasks)) {
+                    $this->line('');
+                    $this->warn("⚠️  WARNING: Optimization step [{$taskName}] encountered an operational error.");
+                    $this->error("❌ Failure Details: The host environment rejected or failed this specific instruction.");
+                    
+                    if (isset($manualFixSuggestions[$taskName])) {
+                        $this->line("<fg=yellow>👉 Please resolve this manually inside your Hostinger terminal:</fg=yellow>");
+                        $this->line("<fg=cyan>   " . $manualFixSuggestions[$taskName] . "</fg=cyan>");
+                    }
+                    $this->line('');
+                    
+                    $this->printFormattedOutput("{$taskName} Soft-Failure Trace Log", $errorLog);
+                    $this->line("<info>skip ⏭️  Non-critical step bypassed. Continuing deployment pipeline safely...</info>\n");
+                    continue; 
+                }
+
+                // Handle Strict Hard-Failures for Critical Steps
                 $this->line('');
-                $this->error("❌ Fatal Circuit-Breaker: Optimization step failed at [{$taskName}]. Stopping deployment.");
-                // Displays stderr output, falls back to stdout if stderr is empty
-                $errorLog = !empty($process->errorOutput()) ? $process->errorOutput() : $process->output();
-                $this->printFormattedOutput("{$taskName} Error Trace Log", $errorLog);
+                $this->error("❌ Fatal Circuit-Breaker: Critical optimization step failed at [{$taskName}]. Stopping deployment.");
+                $this->printFormattedOutput("{$taskName} Fatal Error Trace Log", $errorLog);
                 return false;
+                
             } else {
+                // 🟢 PATH: Command executed smoothly with clear exit codes
                 $this->info("   ↳ Step [{$taskName}] completed successfully.");
 
-                $outputTrimmed = trim($process->output());
-
-                // 🎛️ Intelligent Output Rules
                 if ($taskName === "Setup Storage Link" && !$this->option('debug') && !empty($outputTrimmed)) {
-                    // In standard mode, always print out ShipIt's custom real-time decision message
                     $this->line($outputTrimmed);
                 } elseif ($this->option('debug')) {
-                    // In debug mode, show exactly what the command did along with its complete, raw response trace
                     $this->line("<comment>[DEBUG] Command Sent:</comment> {$commandString}");
                     $this->printFormattedOutput(
                         "{$taskName} Output Trace",
