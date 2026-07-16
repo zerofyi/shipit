@@ -23,9 +23,9 @@ abstract class BasePushCommand extends Command
         ];
 
         if (empty($config['repo_url']) || !filter_var($config['repo_url'], FILTER_DEFAULT)) {
-            $this->error('❌ Missing or invalid required environment variable: GITHUB_REPO_URL');
-            $this->line('💡 Please add the following entry to your local .env file:');
-            $this->warn('   GITHUB_REPO_URL=https://github.com/username/repository.git');
+            $this->error('[x] Missing or invalid required environment variable: GITHUB_REPO_URL');
+            $this->line('    👉 Please add the following entry to your local .env file:');
+            $this->line('<fg=yellow>    GITHUB_REPO_URL=https://github.com/username/repository.git</>');
             return null;
         }
 
@@ -47,17 +47,17 @@ abstract class BasePushCommand extends Command
             }
 
             if (!empty($missing)) {
-                $this->error('❌ Missing required Hostinger environment variables.');
-                $this->line('💡 Please add these missing entries to your local .env file:');
+                $this->error('[x] Missing required Hostinger environment variables.');
+                $this->line('    👉 Please add these missing entries to your local .env file:');
                 foreach ($missing as $envKey) {
-                    $this->warn("   {$envKey}=value");
+                    $this->line("<fg=yellow>    {$envKey}=value</>");
                 }
                 return null;
             }
 
             // Strict Anti-Destruction Check: Ensure directory name contains no hazardous path characters
             if (str_contains($config['site_dir'], '..') || str_contains($config['site_dir'], '/') || str_contains($config['site_dir'], '\\')) {
-                $this->error('❌ Critical Security Alert: HOSTINGER_SITE_DIR contains unsafe path characters.');
+                $this->error('[x] Critical Security Alert: HOSTINGER_SITE_DIR contains unsafe path characters.');
                 return null;
             }
         }
@@ -75,49 +75,49 @@ abstract class BasePushCommand extends Command
             return true;
         }
 
-        $this->info('📦 package.json detected. Verifying local Node environment...');
+        $this->line('<fg=cyan>[*] package.json detected. Verifying local Node environment...</>');
 
         // Cross-platform check for npm binary presence
         $npmCheckCmd = str_starts_with(strtoupper(PHP_OS), 'WIN') ? 'where npm' : 'which npm';
         try {
             $npmCheck = Process::run($npmCheckCmd);
             if (!$npmCheck->successful()) {
-                $this->warn('⚠️  npm binary not found on your local computer. Skipping asset compilation.');
+                $this->line('<fg=yellow>[!] npm binary not found on your local computer. Skipping asset compilation.</>');
                 return true;
             }
         } catch (Exception $e) {
-            $this->warn('⚠️  Failed to look up local npm environment path. Proceeding cautiously...');
+            $this->line('<fg=yellow>[!] Failed to look up local npm environment path. Proceeding cautiously...</>');
             return true;
         }
 
         try {
             // Auto-install missing local dependencies safely
             if (!is_dir(base_path('node_modules'))) {
-                $this->info('📥 Local node_modules missing. Running npm install...');
+                $this->line('<fg=yellow>[o] Local node_modules missing. Running npm install... [Processing]</>');
                 $install = Process::timeout(self::PROCESS_TIMEOUT)->path(base_path())->run('npm install');
 
                 if (!$install->successful()) {
-                    $this->error('❌ Local "npm install" failed.');
+                    $this->error('[x] Local "npm install" failed.');
                     $this->line($install->errorOutput());
                     return false;
                 }
             }
 
             // Run localized optimization production compilation build
-            $this->info('🔨 Compiling frontend assets via npm run build...');
+            $this->line('<fg=yellow>[o] Compiling frontend assets via npm run build... [Processing]</>');
             $build = Process::timeout(self::PROCESS_TIMEOUT)->path(base_path())->run('npm run build');
 
             if (!$build->successful()) {
-                $this->error('❌ Local frontend compilation failed.');
+                $this->error('[x] Local frontend compilation failed.');
                 $this->line($build->errorOutput());
                 return false;
             }
         } catch (Exception $e) {
-            $this->error('❌ Fatal error encountered during local frontend build pipeline: ' . $e->getMessage());
+            $this->error('[x] Fatal error encountered during local frontend build pipeline: ' . $e->getMessage());
             return false;
         }
 
-        $this->info('✅ Frontend assets built successfully.');
+        $this->line('<fg=green>[+] Frontend assets built successfully.</>');
         return true;
     }
 

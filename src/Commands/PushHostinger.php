@@ -14,14 +14,14 @@ class PushHostinger extends BasePushCommand
                             {--dry-run : Simulate deployment pipelines without editing server files}
                             {--debug   : Print comprehensive network and command execution outputs}';
 
-    protected $description = 'Pushes updates to GitHub, builds local assets, and completes a manual deployment to Hostinger via optimized tar stream.';
+    protected $description = 'Pushes updates to GitHub, builds local assets, and completes a deployment to Hostinger via optimized SSH pipelines.';
 
     public function handle(): int
     {
         $isDryRun = (bool) $this->option('dry-run');
 
         $this->line('');
-        $this->info('🚀 Initializing Complete Hostinger Pipeline Execution...');
+        $this->line('<fg=cyan;options=bold>[->] Initializing Complete Hostinger Pipeline Execution...</>');
         $this->line('');
 
         try {
@@ -48,7 +48,7 @@ class PushHostinger extends BasePushCommand
             }
 
             // Phase 3: Route Sub-Wizard task loops to manage Git configurations
-            $this->info('🔄 Routing tasks into local Git setup wizard...');
+            $this->line('<fg=yellow>[o] Routing tasks into local Git setup wizard...</>');
             $gitWizardCode = $this->call('push:github', [
                 '--dry-run' => $isDryRun,
                 '--skip-assets' => true,
@@ -56,12 +56,12 @@ class PushHostinger extends BasePushCommand
             ]);
 
             if ($gitWizardCode !== 0) {
-                $this->error('❌ Deployment aborted. Core structural codebase syncing failed.');
+                $this->error('[x] Deployment aborted. Core structural codebase syncing failed.');
                 return Command::FAILURE;
             }
 
             // Phase 4: Local-to-Server SSH Verification handshake
-            $this->info('🔑 Initializing connection sequence with remote Hostinger node...');
+            $this->line('<fg=cyan>[*] Initializing connection sequence with remote Hostinger node...</>');
 
             $userClean = trim($env['ssh_user']);
             $dirClean = trim($env['site_dir']);
@@ -80,11 +80,11 @@ class PushHostinger extends BasePushCommand
 
             if (!$pathCheck->successful() || trim($pathCheck->output()) !== 'exists') {
                 $this->line('');
-                $this->error("❌ Error: Target deployment directory [{$absolutePath}] does not exist on your Hostinger server.");
-                $this->line('💡 Please map and set up this domain directory correctly within your Hostinger control panel first.');
+                $this->error("[x] Error: Target deployment directory [{$absolutePath}] does not exist on your Hostinger server.");
+                $this->line('    👉 Please map and set up this domain directory correctly within your Hostinger control panel first.');
                 return Command::FAILURE;
             }
-            $this->info('✅ Production target directory path verified.');
+            $this->line('<fg=green>[+] Production target directory path verified.</>');
 
             // Phase 5: Server-to-GitHub Trust Verification Engine
             $finalServerRepoUrl = $this->resolveServerToGitHubTrust($env['repo_url'], $sshRepoUrl, $sshBase, $isDryRun);
@@ -99,12 +99,12 @@ class PushHostinger extends BasePushCommand
 
         } catch (Exception $e) {
             $this->line('');
-            $this->error('❌ Fatal unhandled exception terminated the deployment pipeline: ' . $e->getMessage());
+            $this->error('[x] Fatal unhandled exception terminated the deployment pipeline: ' . $e->getMessage());
             return Command::FAILURE;
         }
 
         $this->line('');
-        $this->info("🎉 Deployment successfully updated! Production live link: https://{$env['site_dir']}");
+        $this->line("<fg=green;options=bold>[==] Deployment successfully updated! Production live link: https://{$env['site_dir']}</>");
         return Command::SUCCESS;
     }
 
@@ -124,25 +124,25 @@ class PushHostinger extends BasePushCommand
         }
 
         // 1. Force feed hostname signatures safely into remote known_hosts mapping
-        $this->info("🔍 Synchronizing host keys matching destination domain signature: {$host}");
+        $this->line("<fg=yellow>[o] Synchronizing host keys matching destination domain signature: {$host}</>");
         $scanCmd = "{$sshBase} " . escapeshellarg("mkdir -p ~/.ssh && chmod 700 ~/.ssh && if ! grep -q '{$host}' ~/.ssh/known_hosts 2>/dev/null; then ssh-keyscan -H '{$host}' >> ~/.ssh/known_hosts 2>/dev/null; fi");
         Process::run($scanCmd);
 
         // 2. Intercept repository configuration profile context visibility variables
-        $this->info('🔍 Resolving repository accessibility profile context...');
+        $this->line('<fg=yellow>[o] Resolving repository accessibility profile context...</>');
 
         $visibilityCheck = Process::env([
             'GITHUB_TOKEN'        => null,
-            'GIT_ASKPASS'        => 'echo',
+            'GIT_ASKPASS'         => 'echo',
             'GIT_TERMINAL_PROMPT' => '0'
         ])->run('git -c credential.helper= ls-remote -h ' . escapeshellarg($httpRepoUrl));
 
         if ($visibilityCheck->successful()) {
-            $this->info('✅ Public repository signature detected. Skipping authentication setup steps.');
+            $this->line('<fg=green>[+] Public repository signature detected. Skipping authentication setup steps.</>');
             return $httpRepoUrl;
         }
 
-        $this->warn('🔒 Private repository detected. Managing deployment keys on the server...');
+        $this->line('<fg=magenta>[!] Private repository detected. Managing deployment keys on the server...</>');
 
         // 3. Check for existing server keys or generate an unpassphrased profile dynamically via RSA
         $keyCheckCmd = "{$sshBase} " . escapeshellarg("test -f ~/.ssh/id_rsa && echo 'exists' || echo 'missing'");
@@ -150,13 +150,13 @@ class PushHostinger extends BasePushCommand
 
         $keyPath = '~/.ssh/id_rsa';
         if ($keyCheck === 'missing') {
-            $this->info('🔑 Key files absent on host server. Generating fresh unpassphrased RSA 4096-bit key pair...');
+            $this->line('<fg=cyan>[*] Key files absent on host server. Generating fresh unpassphrased RSA 4096-bit key pair...</>');
 
             $genCmd = "{$sshBase} " . escapeshellarg("mkdir -p ~/.ssh && chmod 700 ~/.ssh && ssh-keygen -t rsa -b 4096 -P '' -f ~/.ssh/id_rsa");
             $genProcess = Process::run($genCmd);
 
             if (!$genProcess->successful()) {
-                $this->error('❌ Failed to execute key generation command on Hostinger.');
+                $this->error('[x] Failed to execute key generation command on Hostinger.');
                 $this->printFormattedOutput('Keygen Error Output', $genProcess->errorOutput());
                 return null;
             }
@@ -167,7 +167,7 @@ class PushHostinger extends BasePushCommand
         $publicKey = trim(Process::run($getPubCmd)->output());
 
         if (empty($publicKey)) {
-            $this->error('❌ Failed to retrieve structural public key string from server configuration context.');
+            $this->error('[x] Failed to retrieve structural public key string from server configuration context.');
             return null;
         }
 
@@ -178,15 +178,16 @@ class PushHostinger extends BasePushCommand
         // 4. Inject public key data string directly into GitHub Repository configurations if a token is readily present
         $token = env('GITHUB_API_TOKEN');
         if (!empty($token)) {
-            $this->info('🤖 GITHUB_API_TOKEN found. Attempting automatic Deploy Key injection...');
+            $this->line('<fg=cyan>[*] GITHUB_API_TOKEN found. Attempting automatic Deploy Key injection...</>');
 
             if (preg_match('#github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$#', trim($sshRepoUrl), $repoMatches)) {
                 $owner = trim($repoMatches[1]);
                 $repoName = trim($repoMatches[2]);
 
                 $apiUrl = "https://api.github.com/repos/{$owner}/{$repoName}/keys";
+                $compiledHttpsTokenUrl = "https://x-access-token:" . trim($token) . "@github.com/{$owner}/{$repoName}.git";
+
                 try {
-                    // RESTORED: Check if key already exists on GitHub API first to prevent duplicate errors
                     $checkResponse = Http::withHeaders([
                         'Accept' => 'application/vnd.github.v3+json',
                         'Authorization' => "Bearer " . trim($token),
@@ -205,7 +206,7 @@ class PushHostinger extends BasePushCommand
                     }
 
                     if ($alreadyLinked) {
-                        $this->info('✅ Deploy key already recognized active on GitHub.');
+                        $this->line('<fg=green>[+] Deploy key already recognized active on GitHub.</>');
                         return $sshRepoUrl;
                     }
 
@@ -214,68 +215,86 @@ class PushHostinger extends BasePushCommand
                         'Authorization' => "Bearer " . trim($token),
                     ])->post($apiUrl, [
                         'title' => 'Hostinger Server Deployment Key',
-                        'key' => $normalizedKey,
+                        'key' => trim($normalizedKey),
                         'read_only' => true
                     ]);
 
-                    if ($response->successful() || $response->status() === 422) {
-                        $this->info('✅ Remote security trust chain verified (Deploy key active).');
+                    if ($response->successful()) {
+                        $this->line('<fg=green>[+] Remote security trust chain verified (Deploy key active).</>');
                         return $sshRepoUrl;
                     }
+
+                    // ⚡ RESCUE PLAN INTERCEPT: Fallback to token HTTPS if key registration hits a 422/403 constraint
+                    if ($response->status() === 422 || $response->status() === 403) {
+                        $this->line('');
+                        $this->line('<fg=yellow>[!] GitHub API Key Collision: This server public key is already in use by another repository.</>');
+                        
+                        if ($this->confirmYN('👉 Would you like ShipIt to execute a token-based HTTPS rescue fallback instead?', true)) {
+                            $this->line('<fg=cyan>[*] Activating automated token-based HTTPS rescue fallback...</>');
+                            return $compiledHttpsTokenUrl;
+                        }
+                    }
+
                 } catch (Exception $e) {
-                    $this->warn('⚠️  Automated token API registration handshake timed out.');
+                    $this->line('');
+                    $this->line('<fg=yellow>[!] Automated token API registration handshake timed out or encountered an exception.</>');
+                    
+                    if ($this->confirmYN('👉 Would you like ShipIt to execute a token-based HTTPS rescue fallback instead?', true)) {
+                        $this->line('<fg=cyan>[*] Activating automated token-based HTTPS rescue fallback...</>');
+                        return $compiledHttpsTokenUrl;
+                    }
                 }
-                $this->warn('⚠️  Automated authentication registration failed. Reverting to manual fallback mode.');
+                
+                $this->line('<fg=yellow>[!] Automated authentication registration failed. Reverting to manual fallback mode.</>');
             }
         }
 
         // Interactive manual key exchange console card layout
         $this->line('');
-        $this->warn('📋 Action Required: Please append this server public key to your repository Deploy Keys:');
-        $this->line("   👉 Navigate to: GitHub Repository → Settings → Deploy keys");
-        $this->line('   👉 Click "Add deploy key", name it, paste the string below, and leave "Allow write access" UNCHECKED.');
+        $this->line('<fg=yellow>[!] Action Required: Please append this server public key to your repository Deploy Keys:</>');
+        $this->line("    -> Navigate to: GitHub Repository -> Settings -> Deploy keys");
+        $this->line('    -> Click "Add deploy key", name it, paste the string below, and leave "Allow write access" UNCHECKED.');
         $this->line('');
         $this->line(str_repeat('-', 70));
         $this->info($publicKey);
         $this->line(str_repeat('-', 70));
         $this->line('');
 
-        // RESTORED: Loop confirmation logic matching reference specification
         $maxAttempts = 3;
         for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
             if (!$this->confirmYN("Press ENTER after you have saved this deploy key to GitHub to continue execution (Attempt {$attempt}/{$maxAttempts})", true)) {
-                $this->error('❌ Deployment cancelled by user option.');
+                $this->error('[x] Deployment cancelled by user option.');
                 return null;
             }
 
-            $this->info('🔄 Testing remote server authentication credentials against GitHub...');
+            $this->line('<fg=cyan>[*] Testing remote server authentication credentials against GitHub...</>');
             $testCmd = "{$sshBase} " . escapeshellarg("ssh -T -o StrictHostKeyChecking=accept-new git@{$host} 2>&1");
             $testProcess = Process::run($testCmd);
             $testOutput = strtolower($testProcess->output());
 
             if (str_contains($testOutput, 'successfully authenticated') || str_contains($testOutput, 'hi ')) {
-                $this->info('✅ Key handshakes mapped successfully!');
+                $this->line('<fg=green>[+] Key handshakes mapped successfully!</>');
                 return $sshRepoUrl;
             }
 
             if ($attempt < $maxAttempts) {
-                $this->warn('⚠️  GitHub rejected the connection. Double-check that the key is saved correctly.');
+                $this->line('<fg=yellow>[!] GitHub rejected the connection. Double-check that the key is saved correctly.</>');
             }
         }
 
-        $this->error('❌ Maximum key check attempts exhausted. Aborting deployment.');
+        $this->error('[x] Maximum key check attempts exhausted. Aborting deployment.');
         return null;
     }
 
     private function executeRemoteDeployment(string $repoUrl, string $sshBase, string $absolutePath, bool $isDryRun): bool
     {
         if ($isDryRun) {
-            $this->info('[DRY RUN] Sync pipeline simulated successfully.');
+            $this->line('<fg=green>[+] Sync pipeline simulated successfully.</>');
             return true;
         }
 
         // 1. Synchronize application codebase layout via Git updates
-        $this->info('🔄 Synchronizing codebase versions on server target...');
+        $this->line('<fg=yellow>[o] Synchronizing codebase versions on server target... [Processing]</>');
         $repoStatusCmd = "{$sshBase} " . escapeshellarg("test -d '{$absolutePath}/.git' && echo 'pull' || echo 'clone'");
         $repoStatus = trim(Process::run($repoStatusCmd)->output());
 
@@ -290,15 +309,15 @@ class PushHostinger extends BasePushCommand
 
         $syncProcess = Process::timeout(self::PROCESS_TIMEOUT)->run($syncCmd);
         if (!$syncProcess->successful()) {
-            $this->error('❌ Codebase alignment step failed.');
+            $this->error('[x] Codebase alignment step failed.');
             $this->printFormattedOutput('Sync Error Output', $syncProcess->errorOutput());
             return false;
         }
-        $this->info('   ↳ Codebase successfully synced.');
+        $this->line('    -> Codebase successfully synced.');
 
         // 2. Synchronize frontend bundle directories via compressed Tarball streams over SSH
         if (is_dir(base_path('public/build'))) {
-            $this->info('📤 Delivering compiled frontend bundles via compressed stream pipeline...');
+            $this->line('<fg=yellow>[o] Delivering compiled frontend bundles via compressed stream pipeline... [Processing]</>');
             $remoteBuildPath = "{$absolutePath}/public/build";
 
             Process::run("{$sshBase} " . escapeshellarg("rm -rf '{$remoteBuildPath}' && mkdir -p '{$absolutePath}/public'"));
@@ -313,16 +332,16 @@ class PushHostinger extends BasePushCommand
             $tarProcess = Process::run($tarCmd);
 
             if (!$tarProcess->successful()) {
-                $this->error('❌ Asset synchronization pipeline failed completely.');
+                $this->error('[x] Asset synchronization pipeline failed completely.');
                 $this->printFormattedOutput('Asset Stream Failure Logs', $tarProcess->errorOutput());
                 return false;
             }
 
-            $this->info('   ↳ Frontend assets synchronized successfully.');
+            $this->line('    -> Frontend assets synchronized successfully.');
         }
 
         // 3. Complete remote Laravel deployment optimization framework (Strict Circuit-Breaker Loop)
-        $this->info('⚙️  Running production optimization pipeline over SSH...');
+        $this->line('<fg=cyan>[*] Running production optimization pipeline over SSH...</>');
 
         $remoteCommands = [
             "Ensure App Directory Context" => "cd '{$absolutePath}'",
@@ -332,14 +351,14 @@ class PushHostinger extends BasePushCommand
             
             // Intelligent real-time decision-making with output capturing
             "Setup Storage Link"           => "cd '{$absolutePath}' && " .
-                                            "if [ -L public/storage ]; then " .
-                                            "    echo '👉 INFO: A symbolic link already exists at public/storage. Skipping creation.'; " .
-                                            "elif [ -d public/storage ]; then " .
-                                            "    echo '⚠️ WARNING: A physical directory already exists at public/storage! Laravel needs this path to be clear to map the link.'; " .
-                                            "else " .
-                                            "    echo '⚡ ACTION: No existing link found. Running fresh artisan storage:link command now...'; " .
-                                            "    php artisan storage:link 2>&1; " .
-                                            "fi",
+                                              "if [ -L public/storage ]; then " .
+                                              "    echo '👉 INFO: A symbolic link already exists at public/storage. Skipping creation.'; " .
+                                              "elif [ -d public/storage ]; then " .
+                                              "    echo '⚠️ WARNING: A physical directory already exists at public/storage! Laravel needs this path to be clear to map the link.'; " .
+                                              "else " .
+                                              "    echo '⚡ ACTION: No existing link found. Running fresh artisan storage:link command now...'; " .
+                                              "    php artisan storage:link 2>&1; " .
+                                              "fi",
 
             "Setup Public HTML Symlink"    => "cd '{$absolutePath}' && rm -rf public_html && ln -sfn public public_html",
             "Clear Optimization Cache"     => "cd '{$absolutePath}' && php artisan optimize:clear",
@@ -364,63 +383,59 @@ class PushHostinger extends BasePushCommand
 
         foreach ($remoteCommands as $taskName => $commandString) {
             $this->debug("Executing task: {$taskName}");
+            $this->line("<fg=yellow>    ... Processing: {$taskName} ...</>");
+
             $execCmd = "{$sshBase} " . escapeshellarg($commandString);
             $process = Process::timeout(self::PROCESS_TIMEOUT)->run($execCmd);
 
             $errorLog = !empty($process->errorOutput()) ? $process->errorOutput() : $process->output();
             $outputTrimmed = trim($process->output());
 
-            // Flag to track if we encountered a hidden internal script error inside an exit code 0
             $hasInternalError = (in_array($taskName, $nonCriticalTasks) && str_contains($outputTrimmed, 'Call to undefined function'));
 
-            // 🔴 CONDITION: Command shell reported failure OR returned a masked framework crash output
             if (!$process->successful() || $hasInternalError) {
                 
-                // Handle the Storage Link specific recovery wizard flow
                 if ($taskName === "Setup Storage Link") {
                     $this->line('');
-                    $this->warn("⚠️  WARNING: Optimization step [{$taskName}] failed due to host engine environment constraints.");
-                    $this->error("❌ Framework Error: The server blocked storage link generation (Likely 'exec' or 'symlink' functions are disabled via php.ini).");
+                    $this->line("<fg=yellow>[!] WARNING: Optimization step [{$taskName}] failed due to host engine environment constraints.</>");
+                    $this->error("[x] Framework Error: The server blocked storage link generation (Likely 'exec' or 'symlink' functions are disabled via php.ini).");
                     
                     $this->printFormattedOutput("{$taskName} Environment Exception Log", $hasInternalError ? $outputTrimmed : $errorLog);
                     
-                    // 🤖 INTERACTIVE WIZARD: Request permissions to run native OS fallback streaming overrides
-                    if ($this->confirm("👉 Framework automation failed. Would you like ShipIt to execute a native Linux stream fallback override via SSH?", true)) {
-                        $this->info("⚡ Initializing Native OS Stream Override Pipeline...");
+                    if ($this->confirmYN('👉 Would you like ShipIt to execute a native Linux stream fallback override via SSH?', true)) {
+                        $this->line('<fg=cyan>[*] Initializing Native OS Stream Override Pipeline...</>');
                         
                         $fallbackCmdString = "cd '{$absolutePath}' && ln -sfn ../storage/app/public public/storage 2>&1";
                         $fallbackExec = "{$sshBase} " . escapeshellarg($fallbackCmdString);
                         $fallbackProcess = Process::timeout(self::PROCESS_TIMEOUT)->run($fallbackExec);
                         
                         if ($fallbackProcess->successful()) {
-                            $this->info("✅ SUCCESS: Native OS link override established successfully!");
-                            $this->line("<fg=green>   ↳ Reference mapped: public/storage -> ../storage/app/public</fg=green>\n");
-                            continue; // Recovery script worked, advance securely to next step
+                            $this->line('<fg=green>[+] SUCCESS: Native OS link override established successfully!</>');
+                            $this->line("    -> Reference mapped: public/storage -> ../storage/app/public\n");
+                            continue;
                         } else {
-                            $this->error("❌ Error: Native OS override execution rejected by server security policy layers.");
+                            $this->error('[x] Error: Native OS override execution rejected by server security policy layers.');
                             $fallbackError = !empty($fallbackProcess->errorOutput()) ? $fallbackProcess->errorOutput() : $fallbackProcess->output();
                             $this->printFormattedOutput("Native Override Trace Log", $fallbackError);
                         }
                     }
                     
-                    // 📘 RECOVERY GUIDE: Render clean fallback directions if interactive validation is skipped/failed
                     $this->line('');
                     $this->line("<fg=yellow>============= MANUAL RESOLUTION ARCHITECTURE GUIDE =============</fg=yellow>");
-                    $this->line("<fg=yellow>1. Resolve this via hPanel or your server manager by enabling 'exec' inside the 'disable_functions' directive and re-running ShipIt.</fg=yellow>");
-                    $this->line("<fg=yellow>2. Alternatively, log into your manual SSH terminal prompt and fire this raw terminal line directly:</fg=yellow>");
+                    $this->line("<fg=yellow>1. Enable 'exec' inside the 'disable_functions' directive within your host panel configuration rules.</fg=yellow>");
+                    $this->line("<fg=yellow>2. Alternatively, fire this command string line directly within your manual terminal link context:</fg=yellow>");
                     $this->line("<fg=cyan>   ln -sfn ../storage/app/public public/storage</fg=cyan>");
                     $this->line("<fg=yellow>================================================================</fg=yellow>");
                     $this->line('');
                     
-                    $this->line("<info>skip ⏭️  Non-critical step bypassed. Continuing deployment pipeline safely...</info>\n");
+                    $this->line("    -> Non-critical step bypassed. Continuing deployment pipeline safely...\n");
                     continue;
                 }
 
-                // Handle generic Soft-Failures for other Non-Critical Tasks
                 if (in_array($taskName, $nonCriticalTasks)) {
                     $this->line('');
-                    $this->warn("⚠️  WARNING: Optimization step [{$taskName}] encountered an operational error.");
-                    $this->error("❌ Failure Details: The host environment rejected or failed this specific instruction.");
+                    $this->line("<fg=yellow>[!] WARNING: Optimization step [{$taskName}] encountered an operational error.</>");
+                    $this->error("[x] Failure Details: The host environment rejected or failed this specific instruction.");
                     
                     if (isset($manualFixSuggestions[$taskName])) {
                         $this->line("<fg=yellow>👉 Please resolve this manually inside your Hostinger terminal:</fg=yellow>");
@@ -429,24 +444,22 @@ class PushHostinger extends BasePushCommand
                     $this->line('');
                     
                     $this->printFormattedOutput("{$taskName} Soft-Failure Trace Log", $errorLog);
-                    $this->line("<info>skip ⏭️  Non-critical step bypassed. Continuing deployment pipeline safely...</info>\n");
+                    $this->line("    -> Non-critical step bypassed. Continuing deployment pipeline safely...\n");
                     continue; 
                 }
 
-                // Handle Strict Hard-Failures for Critical Steps
                 $this->line('');
-                $this->error("❌ Fatal Circuit-Breaker: Critical optimization step failed at [{$taskName}]. Stopping deployment.");
+                $this->error("[x] Fatal Circuit-Breaker: Critical optimization step failed at [{$taskName}]. Stopping deployment.");
                 $this->printFormattedOutput("{$taskName} Fatal Error Trace Log", $errorLog);
                 return false;
                 
             } else {
-                // 🟢 PATH: Command executed smoothly with clear exit codes
-                $this->info("   ↳ Step [{$taskName}] completed successfully.");
+                $this->line("    <fg=green>[+] Step [{$taskName}] completed successfully.</>");
 
                 if ($taskName === "Setup Storage Link" && !$this->option('debug') && !empty($outputTrimmed)) {
-                    $this->line($outputTrimmed);
+                    $this->line('    ' . $outputTrimmed);
                 } elseif ($this->option('debug')) {
-                    $this->line("<comment>[DEBUG] Command Sent:</comment> {$commandString}");
+                    $this->line("    <comment>[DEBUG] Command Sent:</comment> {$commandString}");
                     $this->printFormattedOutput(
                         "{$taskName} Output Trace",
                         !empty($outputTrimmed) ? $outputTrimmed : "[Command completed with a silent/empty output buffer]"
