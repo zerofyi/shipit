@@ -5,10 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-07-17
+
+### Added
+- Standardized documentation structural architecture, correcting multi-byte anchor link layout alignments across Markdown preview surfaces.
+
+### Changed
+- Refactored token configuration guidelines to specify explicit Fine-Grained token recreate-and-replace workflows.
+- Bumped production distribution manifest blocks to clear upstream composer repository cache pipelines.
+
+---
+
 ## [1.3.0] - 2026-07-17
 
 ### Added
 - Introduced an intelligent **Token-Based HTTPS Rescue Fallback Wrapper** (`x-access-token`) to automatically bypass GitHub API `422` public key collisions on multi-tenant shared servers.
+- Integrated an intelligent **SSH Remote Diagnostic Engine** into pre-flight checks to automatically differentiate between disabled server SSH configurations and missing target domain directory paths.
 - Added visual interactive processing indicators (`... Processing: [Task] ...`) providing real-time execution feedback during long-running async terminal commands.
 
 ### Changed

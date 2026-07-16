@@ -78,12 +78,23 @@ class PushHostinger extends BasePushCommand
             $pathCheckCmd = "{$sshBase} " . escapeshellarg("test -d '{$absolutePath}' && echo 'exists' || echo 'missing'");
             $pathCheck = Process::run($pathCheckCmd);
 
-            if (!$pathCheck->successful() || trim($pathCheck->output()) !== 'exists') {
+            if (!$pathCheck->successful()) {
+                $this->line('');
+                $this->error("[x] Connection Failure: Could not establish a secure handshake with your Hostinger server.");
+                $this->line('<fg=yellow>[!] Troubleshooting Steps:</>');
+                $this->line('    1. Verify that "SSH Access" is explicitly ENABLED inside your Hostinger Control Panel.');
+                $this->line('    2. Confirm that your local public SSH key has been added to Hostinger\'s "Authorized Keys".');
+                $this->line('    3. Verify that your .env SSH configurations (Host, Username, Port) match exactly.');
+                return Command::FAILURE;
+            }
+
+            if (trim($pathCheck->output()) !== 'exists') {
                 $this->line('');
                 $this->error("[x] Error: Target deployment directory [{$absolutePath}] does not exist on your Hostinger server.");
                 $this->line('    👉 Please map and set up this domain directory correctly within your Hostinger control panel first.');
                 return Command::FAILURE;
             }
+            
             $this->line('<fg=green>[+] Production target directory path verified.</>');
 
             // Phase 5: Server-to-GitHub Trust Verification Engine
@@ -227,10 +238,20 @@ class PushHostinger extends BasePushCommand
                     // ⚡ RESCUE PLAN INTERCEPT: Fallback to token HTTPS if key registration hits a 422/403 constraint
                     if ($response->status() === 422 || $response->status() === 403) {
                         $this->line('');
-                        $this->line('<fg=yellow>[!] GitHub API Key Collision: This server public key is already in use by another repository.</>');
+                        $this->line('<fg=yellow>[!] GitHub Deployment Key Collision: This server public key is already in use by another repository.</>');
+                        
+                        // Architectural tip for token requirements
+                        $this->line('<fg=cyan>    💡 Tip: Your GITHUB_API_TOKEN must have "Contents: Read-Only" permissions too, to execute this fallback.</>');
+                        $this->line('<fg=cyan>       If it fails with a 403 error, delete your old token, generate a fresh one with Administration: Read & Write</>');
+                        $this->line('<fg=cyan>       and Contents: Read-Only permissions, then swap it into your local .env configuration.</>');
                         
                         if ($this->confirmYN('👉 Would you like ShipIt to execute a token-based HTTPS rescue fallback instead?', true)) {
                             $this->line('<fg=cyan>[*] Activating automated token-based HTTPS rescue fallback...</>');
+                            
+                            // Recommendation for token longevity if fallback is preferred
+                            $this->line('<fg=yellow>    ℹ️  Note: If you plan to use this fallback method for future deployments, consider extending</>');
+                            $this->line('<fg=yellow>       the token\'s lifespan or setting it to "No Expiration" to prevent pipeline interruptions.</>');
+                            
                             return $compiledHttpsTokenUrl;
                         }
                     }
@@ -241,6 +262,10 @@ class PushHostinger extends BasePushCommand
                     
                     if ($this->confirmYN('👉 Would you like ShipIt to execute a token-based HTTPS rescue fallback instead?', true)) {
                         $this->line('<fg=cyan>[*] Activating automated token-based HTTPS rescue fallback...</>');
+                        
+                        $this->line('<fg=yellow>    ℹ️  Note: If you rely on this fallback configuration, make sure the token permissions are valid</>');
+                        $this->line('<fg=yellow>       with a extended/non-expiring lifespan to ensure future automated deployments remain stable.</>');
+                        
                         return $compiledHttpsTokenUrl;
                     }
                 }

@@ -77,7 +77,7 @@ HOSTINGER_SSH_PORT=65002
 HOSTINGER_SITE_DIR=yourdomain.com
 ```
 
-> 💡 `GITHUB_API_TOKEN` is **optional**. If your repository is **private** and you want ShipIt to handle GitHub deploy key registration fully automatically — with no manual steps — add a Fine-grained Personal Access Token here. [See how to generate one ↓](#generating-a-github-fine-grained-token)
+> 💡 `GITHUB_API_TOKEN` is **optional**. If your repository is **private** and you want ShipIt to handle GitHub deploy key registration fully automatically — with no manual steps — add a Fine-grained Personal Access Token here. [See how to generate one ↓](#--generating-a-github-fine-grained-token)
 
 > 📡 Not sure where to find your Hostinger SSH details? [See Step 1 of the SSH Setup Guide ↓](#step-1--enable-ssh-in-hpanel)
 
@@ -228,6 +228,10 @@ A Fine-grained Personal Access Token is required **only if your repository is pr
 - Find **Administration** and set it to **Read and Write**
 
 > This is the only permission ShipIt needs — it uses it solely to register the server's deploy key on your repo so the server can pull code.
+
+- *(Optional Fallback Support)* Find **Contents** and set it to **Read-Only**.
+
+> 💡 **Why add this?** If another project on your server is already using your public SSH key, ShipIt will automatically use an alternate HTTPS fallback method to pull your code. This fallback requires **Contents: Read-Only** access to copy your files over.
 
 **5. Click Generate token**, copy it immediately, and add it to your `.env`:
 
