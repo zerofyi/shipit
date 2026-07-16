@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-07-17
+
+### Fixed
+- Forced manual cache clearance on upstream Composer package listings by introducing an explicit structural repository layout patch.
+- Resolved an internal repository anchor tracking issue inside project configuration documentation.
+
 ## [2.0.0] - 2026-07-17
 
 ### Added
