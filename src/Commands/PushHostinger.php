@@ -104,7 +104,7 @@ class PushHostinger extends BasePushCommand
             }
 
             // Phase 6: Code Syncing & Production Pipeline Optimization Execution
-            if (!$this->executeRemoteDeployment($finalServerRepoUrl, $sshBase, $absolutePath, $isDryRun)) {
+            if (!$this->executeRemoteDeployment($finalServerRepoUrl, $sshBase, $absolutePath, $env, $isDryRun)) {
                 return Command::FAILURE;
             }
 
@@ -311,7 +311,7 @@ class PushHostinger extends BasePushCommand
         return null;
     }
 
-    private function executeRemoteDeployment(string $repoUrl, string $sshBase, string $absolutePath, bool $isDryRun): bool
+    private function executeRemoteDeployment(string $repoUrl, string $sshBase, string $absolutePath, array $env, bool $isDryRun): bool
     {
         if ($isDryRun) {
             $this->line('<fg=green>[+] Sync pipeline simulated successfully.</>');
@@ -365,13 +365,69 @@ class PushHostinger extends BasePushCommand
             $this->line('    -> Frontend assets synchronized successfully.');
         }
 
-        // 3. Complete remote Laravel deployment optimization framework (Strict Circuit-Breaker Loop)
+        // 3. Verify / Provision Server Environment Configuration (.env)
+        $this->line('<fg=yellow>[o] Checking remote environment configuration state...</>');
+        $envExistsCmd = "{$sshBase} " . escapeshellarg("test -f '{$absolutePath}/.env' && echo 'exists' || echo 'missing'");
+        $envCheck = trim(Process::run($envExistsCmd)->output());
+
+        if ($envCheck === 'missing') {
+            $localEnvProd = base_path('.env.production');
+
+            if (file_exists($localEnvProd)) {
+                $this->line('<fg=cyan>[*] Local .env.production file detected. Uploading to server...</>');
+                
+                $userClean = trim($env['ssh_user']);
+                $hostClean = trim($env['ssh_host']);
+                $portClean = (int) $env['ssh_port'];
+
+                $scpCmd = sprintf(
+                    'scp -P %d -o StrictHostKeyChecking=accept-new %s %s',
+                    $portClean,
+                    escapeshellarg($localEnvProd),
+                    escapeshellarg("{$userClean}@{$hostClean}:{$absolutePath}/.env")
+                );
+
+                $scpProcess = Process::run($scpCmd);
+
+                if ($scpProcess->successful()) {
+                    Process::run("{$sshBase} " . escapeshellarg("cd '{$absolutePath}' && php artisan key:generate --quiet"));
+                    $this->line('    <fg=green>[+] Production .env uploaded and application key generated successfully.</>');
+                } else {
+                    $this->line('<fg=yellow>[!] SCP transfer of .env.production failed. Falling back to .env.example...</>');
+                    $envCheck = 'fallback';
+                }
+            } else {
+                $envCheck = 'fallback';
+            }
+
+            if ($envCheck === 'fallback') {
+                $this->line('<fg=cyan>[*] Initializing remote .env from .env.example...</>');
+                Process::run("{$sshBase} " . escapeshellarg("cd '{$absolutePath}' && cp .env.example .env && php artisan key:generate --quiet"));
+
+                $this->line('');
+                $this->line('<fg=cyan>====================================================================</>');
+                $this->line('<fg=yellow>  ⚠️  ACTION REQUIRED: PRODUCTION DATABASE CONFIGURATION NEEDED  ⚠️</>');
+                $this->line('<fg=cyan>====================================================================</>');
+                $this->line("  1. Open your Hostinger File Manager or SSH into: <fg=green>{$absolutePath}/.env</>");
+                $this->line('  2. Configure your DB_DATABASE, DB_USERNAME, and DB_PASSWORD credentials.');
+                $this->line('<fg=cyan>====================================================================</>');
+                $this->line('');
+
+                if (!$this->confirmYN('👉 Press ENTER once you have configured your production .env on the server to proceed with migrations', true)) {
+                    $this->error('[x] Deployment halted by user prior to database migrations.');
+                    return false;
+                }
+            }
+        } else {
+            $this->line('    <fg=green>[+] Preserving existing server .env configuration.</>');
+        }
+
+        // 4. Complete remote Laravel deployment optimization framework (Strict Circuit-Breaker Loop)
         $this->line('<fg=cyan>[*] Running production optimization pipeline over SSH...</>');
 
         $remoteCommands = [
             "Ensure App Directory Context" => "cd '{$absolutePath}'",
             "Install Dependencies"          => "cd '{$absolutePath}' && composer install --no-dev --optimize-autoloader --no-interaction",
-            "Setup Environment Config"      => "cd '{$absolutePath}' && if [ -f .env ]; then echo '👉 INFO: .env file already exists on Hostinger. Skipping creation safely.'; else if [ -f .env.example ]; then cp .env.example .env && php artisan key:generate --quiet && echo '✅ SUCCESS: Created fresh .env from .env.example'; else echo '⚠️ WARNING: .env.example is missing! Could not auto-generate .env'; fi; fi",
             "Run Migrations"               => "cd '{$absolutePath}' && php artisan migrate --force",
             
             // Intelligent real-time decision-making with output capturing
@@ -391,7 +447,6 @@ class PushHostinger extends BasePushCommand
         ];
 
         $nonCriticalTasks = [
-            "Setup Environment Config",
             "Setup Storage Link",
             "Setup Public HTML Symlink",
             "Clear Optimization Cache",
@@ -399,7 +454,6 @@ class PushHostinger extends BasePushCommand
         ];
 
         $manualFixSuggestions = [
-            "Setup Environment Config"   => "Manually create your `.env` file in the repository root and run: php artisan key:generate",
             "Setup Storage Link"         => "Create the symlink manually using raw Linux streams: ln -sfn ../storage/app/public public/storage",
             "Setup Public HTML Symlink"  => "Link your public folder to the web root folder manually: ln -sfn public public_html",
             "Clear Optimization Cache"   => "Clear your application cache manually directly on the host: php artisan cache:clear",

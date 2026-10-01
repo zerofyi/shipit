@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2026-10-01
+
+### Added
+- Introduced automated local `.env.production` detection and secure SCP transfer pipelines directly into the remote deployment sequence.
+- Integrated an interactive execution pause safeguard when copying `.env.example`, allowing developers to set up production database credentials before migrations run.
+
+### Changed
+- Extracted `.env` provisioning out of the standard optimization loop into a dedicated pre-flight phase inside `PushHostinger.php`.
+
+
 ## [2.0.1] - 2026-07-17
 
 ### Fixed
