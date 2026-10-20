@@ -4,6 +4,8 @@ namespace Zerofyi\ShipIt\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Process;
+use Zerofyi\ShipIt\Support\GitChanges;
+use Zerofyi\ShipIt\Support\SiteConfig;
 use Exception;
 
 abstract class BasePushCommand extends Command
@@ -14,55 +16,66 @@ abstract class BasePushCommand extends Command
     protected const PROCESS_TIMEOUT = 300;
 
     /**
-     * Parse and validate required local .env variables with strict security checks.
+     * The resolved configuration for the target site (see SiteConfig).
+     *
+     * @var array{site:string, repo_url:?string, github_token:?string,
+     *            ssh_host:?string, ssh_user:?string, ssh_port:int, site_dir:?string}
      */
-    protected function validateLocalEnvironment(bool $requireHostinger = false): ?array
-    {
-        $config = [
-            'repo_url' => env('GITHUB_REPO_URL'),
-        ];
+    protected array $env = [];
 
-        if (empty($config['repo_url']) || !filter_var($config['repo_url'], FILTER_DEFAULT)) {
-            $this->error('[x] Missing or invalid required environment variable: GITHUB_REPO_URL');
-            $this->line('    👉 Please add the following entry to your local .env file:');
-            $this->line('<fg=yellow>    GITHUB_REPO_URL=https://github.com/username/repository.git</>');
+    /**
+     * Resolve + validate the site configuration, printing a clean,
+     * actionable report when something is wrong. Returns the config on
+     * success and null when the command must abort.
+     *
+     * Site profiles (config/shipit.php "sites") let one Hostinger account
+     * host many websites; every value falls back to the classic .env
+     * variables, so existing single-site setups work unchanged.
+     *
+     * @param 'github'|'server'|'full' $scope
+     *   github — repository URL + API token only (push:github)
+     *   server — SSH fields only (backup / rollback / doctor / env)
+     *   full   — everything (push:hostinger)
+     */
+    protected function resolveSiteOrFail(?string $profile, string $scope): ?array
+    {
+        if (!SiteConfig::profileExists($profile)) {
+            $this->error(" [x] Unknown site profile: '{$profile}'.");
+            $known = SiteConfig::profileNames();
+            $this->line($known === []
+                ? '     No profiles are defined in config/shipit.php yet ("sites" array).'
+                : '     Defined profiles: ' . implode(', ', $known));
             return null;
         }
 
-        if ($requireHostinger) {
-            $config['ssh_host'] = env('HOSTINGER_SSH_HOST');
-            $config['ssh_user'] = env('HOSTINGER_SSH_USERNAME');
-            $config['ssh_port'] = (int) env('HOSTINGER_SSH_PORT', 22);
-            $config['site_dir'] = env('HOSTINGER_SITE_DIR');
+        $cfg = SiteConfig::resolve($profile);
 
-            $missing = [];
-            foreach ([
-                'ssh_host' => 'HOSTINGER_SSH_HOST',
-                'ssh_user' => 'HOSTINGER_SSH_USERNAME',
-                'site_dir' => 'HOSTINGER_SITE_DIR'
-            ] as $key => $envKey) {
-                if (empty($config[$key]) || trim($config[$key]) === '') {
-                    $missing[] = $envKey;
-                }
-            }
+        $errors = match ($scope) {
+            'github' => SiteConfig::validateGithub($cfg),
+            'server' => SiteConfig::validateServer($cfg, needGithub: false),
+            default => SiteConfig::validateServer($cfg, needGithub: true),
+        };
 
-            if (!empty($missing)) {
-                $this->error('[x] Missing required Hostinger environment variables.');
-                $this->line('    👉 Please add these missing entries to your local .env file:');
-                foreach ($missing as $envKey) {
-                    $this->line("<fg=yellow>    {$envKey}=value</>");
-                }
-                return null;
+        if ($errors !== []) {
+            $this->line('');
+            $this->error(' ══════════════════════════════════════════════════════════════');
+            $this->error('  CONFIGURATION ERROR: Environment Validation Failed!');
+            $this->error(' ══════════════════════════════════════════════════════════════');
+            $this->line('  The following required variables are missing or invalid:');
+            $this->line('');
+            foreach ($errors as $error) {
+                $this->line("   [x] {$error}");
             }
-
-            // Strict Anti-Destruction Check: Ensure directory name contains no hazardous path characters
-            if (str_contains($config['site_dir'], '..') || str_contains($config['site_dir'], '/') || str_contains($config['site_dir'], '\\')) {
-                $this->error('[x] Critical Security Alert: HOSTINGER_SITE_DIR contains unsafe path characters.');
-                return null;
-            }
+            $this->line('');
+            $this->line('  REQUIRED ACTION: check your .env file (and the config/shipit.php');
+            $this->line('  site profile, when one is selected), then run the command again.');
+            $this->error(' ══════════════════════════════════════════════════════════════');
+            $this->line('');
+            return null;
         }
 
-        return $config;
+        $this->env = $cfg;
+        return $cfg;
     }
 
     /**
@@ -83,6 +96,7 @@ abstract class BasePushCommand extends Command
             $npmCheck = Process::run($npmCheckCmd);
             if (!$npmCheck->successful()) {
                 $this->line('<fg=yellow>[!] npm binary not found on your local computer. Skipping asset compilation.</>');
+                $this->line('<fg=yellow>    WARNING: if this app has frontend sources, production may keep stale assets.</>');
                 return true;
             }
         } catch (Exception $e) {
@@ -123,17 +137,20 @@ abstract class BasePushCommand extends Command
 
     /**
      * Enforces typed validation for interactive prompts to prevent script runaways.
+     * A blank answer returns the caller's $default — destructive actions in
+     * ShipIt always pass $default = false (or demand typed confirmation),
+     * so an accidental Enter can never authorize them.
      */
     protected function confirmYN(string $question, bool $default = false): bool
     {
         $hint = $default ? '(Y/n)' : '(y/N)';
         $answer = $this->ask("{$question} {$hint}");
 
-        if ($answer === null || trim($answer) === '') {
+        if ($answer === null || trim((string) $answer) === '') {
             return $default;
         }
 
-        return in_array(strtolower(trim($answer)), ['y', 'yes'], true);
+        return in_array(strtolower(trim((string) $answer)), ['y', 'yes'], true);
     }
 
     /**
@@ -141,7 +158,7 @@ abstract class BasePushCommand extends Command
      */
     protected function debug(string $message): void
     {
-        if ($this->option('debug')) {
+        if ($this->hasOption('debug') && $this->option('debug')) {
             $this->line("<fg=gray>[DEBUG] {$message}</>");
         }
     }
@@ -161,5 +178,117 @@ abstract class BasePushCommand extends Command
             $this->line('   ' . rtrim($line));
         }
         $this->line('');
+    }
+
+    /**
+     * Present the changed files as a numbered list and let the user pick a
+     * subset for a selective deploy. Returns selected entries, or null when
+     * the user aborts.
+     *
+     * @param array<int, array{path:string, orig_path:?string, code:string, label:string}> $entries
+     * @return array<int, array{path:string, orig_path:?string, code:string, label:string}>|null
+     */
+    protected function interactiveSelectFiles(array $entries): ?array
+    {
+        $this->line('');
+        $this->info(' Changed files in your working tree:');
+        foreach ($entries as $i => $entry) {
+            $num = $i + 1;
+            $rename = $entry['orig_path'] ? " (from {$entry['orig_path']})" : '';
+            $this->line("   [{$num}] {$entry['label']}: {$entry['path']}{$rename}");
+        }
+        $this->line('');
+
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            $answer = $this->ask(' Enter the numbers to deploy (e.g. 1,3,5 or 2-4, or "all") — leave empty to cancel');
+            if ($answer === null || trim((string) $answer) === '') {
+                return null;
+            }
+            $parsed = GitChanges::parseSelection((string) $answer, count($entries));
+            if ($parsed['error'] !== null) {
+                $this->warn(' ' . $parsed['error']);
+                continue;
+            }
+            return array_map(fn ($idx) => $entries[$idx], $parsed['indices']);
+        }
+
+        return null;
+    }
+
+    /**
+     * Show exactly what a selective deploy will ship (and what stays
+     * behind) and confirm. Returns false when the user backs out.
+     *
+     * @param string[] $selectedPaths
+     * @param string[] $leftBehindPaths
+     */
+    protected function confirmPartialDeploy(array $selectedPaths, array $leftBehindPaths): bool
+    {
+        $this->line('');
+        $this->info(' Selective deploy — only these files will be committed and pushed:');
+        foreach ($selectedPaths as $path) {
+            $this->line("   + {$path}");
+        }
+        if ($leftBehindPaths !== []) {
+            $this->line('');
+            $this->line(' These changes stay on your machine, untouched:');
+            foreach ($leftBehindPaths as $path) {
+                $this->line("   - {$path}");
+            }
+        }
+        $this->line('');
+        $this->warn('  WARNING: make sure the selected files work WITHOUT the changes you');
+        $this->warn('  are leaving behind. If they depend on unfinished work, production');
+        $this->warn('  will break. ShipIt cannot detect code dependencies for you.');
+        $this->line('');
+        return $this->confirmYN(' Proceed with deploying only the selected files?', false);
+    }
+
+    /**
+     * Validate an explicit --files list against the detected changes.
+     * Returns the matching change entries, or null (after printing why).
+     *
+     * @param array<int, array{path:string, orig_path:?string, code:string, label:string}> $entries
+     * @param string[] $wanted
+     * @return array<int, array{path:string, orig_path:?string, code:string, label:string}>|null
+     */
+    protected function matchFilesOption(array $entries, array $wanted): ?array
+    {
+        $byPath = [];
+        foreach ($entries as $entry) {
+            $byPath[$entry['path']] = $entry;
+            if ($entry['orig_path']) {
+                $byPath[$entry['orig_path']] = $entry;
+            }
+        }
+
+        $selected = [];
+        foreach ($wanted as $path) {
+            $path = ltrim($path, './');
+            if (!isset($byPath[$path])) {
+                $this->error(" [x] --files entry '{$path}' is not among the changed files. Nothing was committed.");
+                $this->line('     Changed files are:');
+                foreach ($entries as $entry) {
+                    $this->line("       {$entry['path']}");
+                }
+                return null;
+            }
+            $selected[$byPath[$path]['path']] = $byPath[$path];
+        }
+
+        return array_values($selected);
+    }
+
+    /**
+     * Split a comma-separated --files option value into clean paths.
+     *
+     * @return string[]
+     */
+    protected function parseFilesOption(?string $value): array
+    {
+        if ($value === null || trim($value) === '') {
+            return [];
+        }
+        return array_values(array_filter(array_map('trim', explode(',', $value))));
     }
 }

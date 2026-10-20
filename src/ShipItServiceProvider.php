@@ -3,8 +3,13 @@
 namespace Zerofyi\ShipIt;
 
 use Illuminate\Support\ServiceProvider;
+use Zerofyi\ShipIt\Commands\BackupCommand;
+use Zerofyi\ShipIt\Commands\BackupsCommand;
+use Zerofyi\ShipIt\Commands\DoctorCommand;
+use Zerofyi\ShipIt\Commands\EnvSyncCommand;
 use Zerofyi\ShipIt\Commands\PushGithub;
 use Zerofyi\ShipIt\Commands\PushHostinger;
+use Zerofyi\ShipIt\Commands\RollbackCommand;
 
 class ShipItServiceProvider extends ServiceProvider
 {
@@ -17,7 +22,16 @@ class ShipItServiceProvider extends ServiceProvider
             $this->commands([
                 PushGithub::class,
                 PushHostinger::class,
+                DoctorCommand::class,
+                BackupCommand::class,
+                BackupsCommand::class,
+                RollbackCommand::class,
+                EnvSyncCommand::class,
             ]);
+
+            $this->publishes([
+                __DIR__ . '/../config/shipit.php' => config_path('shipit.php'),
+            ], 'shipit-config');
         }
     }
 
@@ -26,6 +40,6 @@ class ShipItServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        // Left intentionally clean to optimize bootstrap runtimes
+        $this->mergeConfigFrom(__DIR__ . '/../config/shipit.php', 'shipit');
     }
 }
