@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] - 2026-11-21
+
+A regression fix. v2.1.0's new `SiteConfig` validator made `GITHUB_API_TOKEN` mandatory for `push:github` and `push:hostinger` — but the token was always optional: `push:github` never uses it (it pushes with the laptop's own git credentials), and `push:hostinger` only needs it for automatic deploy-key injection on private repos (public repos need no auth at all, private repos fall back to a manual deploy-key card). The README always documented the token as optional; the code now matches the docs again. Fresh apps without a token in `.env` failed `push:github` with "CONFIGURATION ERROR: Environment Validation Failed!" — that is fixed.
+
+### Fixed
+- **`GITHUB_API_TOKEN` is optional again.** `SiteConfig::validateGithub()` no longer requires it; a token that IS present is still checked for truncation (under 20 characters), since a cut-off token breaks the trust layer in confusing ways. `push:hostinger` for a public repo now starts with no token at all, as it did in v2.0.2.
+
+### Added
+- **Token fallback on push auth failure.** When `push:github` is denied by local credentials (bad password, missing SSH key — HTTPS "Authentication failed" and SSH "Permission denied" both count), it asks whether to retry with a GitHub Personal Access Token. The token is typed in hidden, needs Contents: Read & Write to push, is used for that one push only, and the origin remote is restored to the token-free URL immediately afterwards — even when the retry fails — so it never stays in `.git/config`. Declining stops with the auth hint; non-interactive runs fail with the hint and never prompt. (Since `push:hostinger` runs `push:github` for its git-push phase, the fallback works inside a full deploy too.)
+- **Tests.** 7 new tests (2 unit, 5 feature): missing token allowed in `SiteConfig`, `Urls::withToken()` URL building, push without a token, token retry recovering an auth-denied push, SSH permission-denied retry, declining the retry, and non-auth push failures not offering a retry. The `FakeServer` gains `failOnce` (fail only the first matching command) and `failOutput` (custom stderr) to drive these. Suite is now 110 tests / 528 assertions, green on Laravel 10, 11, 12 and 13.
+
 ## [2.2.0] - 2026-11-20
 
 The first-deploy release. A new Laravel app used to discover its missing `.env.production` halfway through the deploy — after assets were built, code was pushed and a backup was taken. Now ShipIt asks for it up front, in two steps, before any of that happens.

@@ -77,4 +77,22 @@ class UrlsTest extends TestCase
         $this->assertSame('gitlab.com', Urls::hostOf('https://gitlab.com/team/app.git'));
         $this->assertSame('github.com', Urls::hostOf('garbage'));
     }
+
+    public function test_builds_token_url(): void
+    {
+        $this->assertSame(
+            'https://x-access-token:ghp_secret123@github.com/zerofyi/mobilebazar.git',
+            Urls::withToken('https://github.com/zerofyi/mobilebazar.git', 'ghp_secret123')
+        );
+        $this->assertSame(
+            'https://x-access-token:ghp_secret123@github.com/zerofyi/mobilebazar.git',
+            Urls::withToken('git@github.com:zerofyi/mobilebazar.git', 'ghp_secret123')
+        );
+        $this->assertSame(
+            'https://x-access-token:tok@gitlab.com/team/app.git',
+            Urls::withToken('https://gitlab.com/team/app.git', 'tok')
+        );
+        $this->assertNull(Urls::withToken('https://github.com/zerofyi/mobilebazar.git', ''));
+        $this->assertNull(Urls::withToken('garbage', 'tok'));
+    }
 }

@@ -68,6 +68,40 @@ class Urls
     }
 
     /**
+     * Build a one-shot token URL for a push retry: injects
+     * x-access-token credentials into an HTTPS URL, or converts an SSH
+     * URL to its HTTPS token form. Returns null when the URL shape
+     * cannot carry a token. The caller must restore the plain URL
+     * afterwards — a token URL must never stay in .git/config.
+     */
+    public static function withToken(string $url, string $token): ?string
+    {
+        $url = trim($url);
+        $token = trim($token);
+
+        if ($url === '' || $token === '') {
+            return null;
+        }
+
+        if (preg_match('#^https?://#', $url)) {
+            return (string) preg_replace(
+                '#^(https?://)#', '$1x-access-token:' . $token . '@', $url, 1
+            );
+        }
+
+        $ownerRepo = self::ownerRepo($url);
+        if ($ownerRepo !== null) {
+            [$owner, $repo] = $ownerRepo;
+            if (!str_ends_with($repo, '.git')) {
+                $repo .= '.git';
+            }
+            return 'https://x-access-token:' . $token . '@' . self::hostOf($url) . "/{$owner}/{$repo}";
+        }
+
+        return null;
+    }
+
+    /**
      * Extract the host from an HTTPS or SSH URL ('github.com' fallback).
      */
     public static function hostOf(string $url, string $fallback = 'github.com'): string

@@ -33,6 +33,10 @@ class FakeServer
     public bool $failBackup = false;
     /** @var array<string,bool> substring => fail that command with exit 1 */
     public array $failOn = [];
+    /** @var array<string,bool> substring => fail only the FIRST matching command (e.g. a push that a retry then saves) */
+    public array $failOnce = [];
+    /** @var array<string,string> substring => stderr to use when failing that command */
+    public array $failOutput = [];
     public string $serverHead = 'aaaaaaa1111111serverhead0001';
     public string $localHead = 'bbbbbbb2222222localhead0002';
     public string $porcelain = " M app/Http/Controllers/HomeController.php\n?? app/NewFile.php\n";
@@ -113,7 +117,14 @@ class FakeServer
 
         foreach ($this->failOn as $needle => $on) {
             if ($on && str_contains($cmd, $needle)) {
-                return Process::result('', "injected failure at {$needle}", 1);
+                return Process::result('', $this->failOutput[$needle] ?? "injected failure at {$needle}", 1);
+            }
+        }
+
+        foreach ($this->failOnce as $needle => $on) {
+            if ($on && str_contains($cmd, $needle)) {
+                $this->failOnce[$needle] = false;
+                return Process::result('', $this->failOutput[$needle] ?? "injected failure at {$needle}", 1);
             }
         }
 

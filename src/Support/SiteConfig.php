@@ -73,6 +73,15 @@ class SiteConfig
     /**
      * Validate a resolved config for a GitHub-only operation.
      *
+     * The API token is OPTIONAL here — and always was, until v2.1.0
+     * wrongly made it mandatory. push:github pushes with the laptop's
+     * own git credentials, and push:hostinger only needs the token for
+     * automatic deploy-key injection on private repos: public repos
+     * need no auth at all, and private repos fall back to a manual
+     * deploy-key card when no token is set. A token that IS present is
+     * still checked for truncation, since a cut-off token breaks the
+     * trust layer in confusing ways.
+     *
      * @return string[] Human-readable errors; empty when valid.
      */
     public static function validateGithub(array $cfg): array
@@ -85,9 +94,7 @@ class SiteConfig
             $errors[] = 'GITHUB_REPO_URL is not a valid repository URL: "' . $cfg['repo_url'] . '" (expected an https:// or git@ URL).';
         }
 
-        if (empty($cfg['github_token'])) {
-            $errors[] = 'GITHUB_API_TOKEN is missing.';
-        } elseif (strlen((string) $cfg['github_token']) < 20) {
+        if (!empty($cfg['github_token']) && strlen((string) $cfg['github_token']) < 20) {
             $errors[] = 'GITHUB_API_TOKEN looks suspiciously short (possible truncation).';
         }
 

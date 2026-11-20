@@ -48,6 +48,23 @@ class SiteConfigTest extends TestCase
         $this->assertNotSame([], SiteConfig::validateGithub($cfg));
     }
 
+    /**
+     * Regression (v2.1.0): the token was wrongly made mandatory, which
+     * broke push:github on fresh setups — push:github never uses the
+     * token, and push:hostinger only needs it for automatic deploy-key
+     * injection on private repos.
+     */
+    public function test_missing_token_is_allowed(): void
+    {
+        $cfg = $this->validServerCfg();
+        $cfg['github_token'] = null;
+        $this->assertSame([], SiteConfig::validateGithub($cfg));
+        $this->assertSame([], SiteConfig::validateServer($cfg));
+
+        $cfg['github_token'] = '';
+        $this->assertSame([], SiteConfig::validateGithub($cfg));
+    }
+
     public function test_path_traversal_in_site_dir_is_refused(): void
     {
         $cfg = $this->validServerCfg();

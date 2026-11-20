@@ -149,8 +149,15 @@ class PushGithub extends BasePushCommand
         $err = $push->errorOutput();
         $errLower = strtolower($err);
 
-        if (str_contains($errLower, 'authentication') || str_contains($errLower, 'password') || str_contains($errLower, '403')) {
+        if ($this->isAuthFailure($errLower)) {
             $this->line('<fg=yellow>[!] Cause: Authentication denied. Validate local Git credentials or map out a GitHub Personal Access Token.</>');
+            // Local credentials first, token only as a fallback: the push
+            // is retried once with a pasted token, then the origin remote
+            // is restored so the token never stays in .git/config.
+            if (!$isDryRun && $this->isInteractiveRun()
+                && $this->offerTokenRetry($repoUrl, $branch, $timeout)) {
+                return true;
+            }
         } elseif (str_contains($errLower, 'not found') || str_contains($errLower, '404')) {
             $this->line('<fg=yellow>[!] Cause: Target URL invalid. Confirm the online repository exists and maps precisely to GITHUB_REPO_URL.</>');
         } elseif (str_contains($errLower, 'rejected') || str_contains($errLower, 'non-fast-forward')) {
@@ -158,6 +165,73 @@ class PushGithub extends BasePushCommand
         }
 
         $this->printFormattedOutput('Git Standard Errors', $err);
+        return false;
+    }
+
+    /**
+     * Is this push failure an authentication failure? Covers HTTPS
+     * ("Authentication failed", bad password, 401/403) and SSH
+     * ("Permission denied (publickey)") — both are cases where a
+     * token-based HTTPS retry can save the push.
+     */
+    private function isAuthFailure(string $errLower): bool
+    {
+        return str_contains($errLower, 'authentication')
+            || str_contains($errLower, 'password')
+            || str_contains($errLower, 'permission denied')
+            || str_contains($errLower, '401')
+            || str_contains($errLower, '403');
+    }
+
+    /**
+     * Offer a one-shot token retry after local git credentials were
+     * denied. The token is asked for (hidden input), used for a single
+     * push, and never saved anywhere: the origin remote is restored to
+     * the plain URL immediately afterwards, even when the retry fails.
+     * Returns true only when the retry push succeeded.
+     */
+    private function offerTokenRetry(string $repoUrl, string $branch, int $timeout): bool
+    {
+        if (!$this->confirmYN(' Local Git credentials were denied. Try pushing with a GitHub Personal Access Token instead?', false)) {
+            return false;
+        }
+
+        $token = $this->secret(' Paste a GitHub Personal Access Token (needs Contents: Read & Write to push)');
+        if ($token === null || trim((string) $token) === '') {
+            $this->error('[x] No token given. Push cancelled.');
+            return false;
+        }
+        $token = trim((string) $token);
+
+        $tokenUrl = Urls::withToken($repoUrl, $token);
+        if ($tokenUrl === null) {
+            $this->error('[x] Could not build a token URL from GITHUB_REPO_URL. Push cancelled.');
+            return false;
+        }
+
+        $this->line('<fg=cyan>[*] Retrying the push with the token — used once, never saved...</>');
+
+        Process::run('git remote set-url origin ' . escapeshellarg($tokenUrl));
+        $retry = Process::timeout($timeout)->run('git push -u origin ' . escapeshellarg($branch));
+        $restored = Process::run('git remote set-url origin ' . escapeshellarg($repoUrl));
+
+        if (!$restored->successful()) {
+            $this->error('[x] WARNING: could not restore the origin remote — the token may still be in .git/config.');
+            $this->line("    Fix it with: git remote set-url origin {$repoUrl}");
+        }
+
+        if ($retry->successful()) {
+            $this->line('<fg=green>[+] Sync successful. Repository contents updated on GitHub.</>');
+            $this->line('<fg=cyan>[*] Origin remote restored to the token-free URL.</>');
+            return true;
+        }
+
+        $this->error('[x] Push with the token failed too.');
+        $this->printFormattedOutput(
+            'Git Standard Errors',
+            str_replace($token, '***', $retry->errorOutput())
+        );
+
         return false;
     }
 

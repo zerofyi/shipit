@@ -179,6 +179,8 @@ Standalone Git command. Scans for uncommitted changes, prompts for a commit mess
 
 > 🔒 **Wrong-repo protection:** before pushing, ShipIt compares your local git `origin` with `GITHUB_REPO_URL`. If they point at different repositories, it stops and asks — code can never silently land in the wrong repo.
 
+> 🔑 **Local auth first, token as fallback:** `push:github` pushes with your laptop's own git credentials — no token needed. If the push is denied (bad credentials, missing SSH key), it asks whether to retry with a GitHub Personal Access Token instead. The token is typed in hidden, used for that one push only, and the origin remote is restored to the token-free URL immediately afterwards, so it never stays in `.git/config`. The token needs Contents: Read & Write to push. In a non-interactive run the push simply fails with the auth hint.
+
 ---
 
 ### Doctor — Pre-Flight Check
