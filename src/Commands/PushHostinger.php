@@ -4,6 +4,7 @@ namespace Zerofyi\ShipIt\Commands;
 
 use Zerofyi\ShipIt\Commands\BasePushCommand;
 use Zerofyi\ShipIt\Support\BackupService;
+use Zerofyi\ShipIt\Support\EnvProductionWizard;
 use Zerofyi\ShipIt\Support\HealthCheck;
 use Zerofyi\ShipIt\Support\Journal;
 use Zerofyi\ShipIt\Support\RemoteShell;
@@ -63,14 +64,9 @@ class PushHostinger extends BasePushCommand
                 return Command::FAILURE;
             }
 
-            // Phase 2: Compile Frontend Assets Locally (Built exactly ONCE)
-            if (!$this->option('skip-assets')) {
-                if (!$this->compileFrontendAssetsLocally()) {
-                    return Command::FAILURE;
-                }
-            }
-
-            // Phase 3: SSH Verification handshake (read-only)
+            // Phase 2: SSH Verification handshake (read-only) — before the
+            // asset build, so connection problems fail fast instead of
+            // after a minute of local compilation.
             $this->line('<fg=cyan>[*] Initializing connection sequence with remote Hostinger node...</>');
             $pathCheck = Process::run("{$sshBase} " . escapeshellarg("test -d '{$absolutePath}' && echo 'exists' || echo 'missing'"));
 
@@ -94,7 +90,31 @@ class PushHostinger extends BasePushCommand
 
             $this->line('<fg=green>[+] Production target directory path verified.</>');
 
-            // Phase 4: Take the per-site deploy lock (real runs only)
+            // Phase 3: First-deploy .env.production wizard — only when the
+            // server has no .env yet and there is no local .env.production
+            // to upload. Runs before assets, git push and backup, so a
+            // stopped wizard leaves nothing half-deployed.
+            if ($this->serverEnvMissing($sshBase, $absolutePath)) {
+                $wizard = EnvProductionWizard::run($this, $env, $isDryRun);
+                if ($wizard === 'stopped') {
+                    $this->error('[x] Deployment stopped — .env.production was not created.');
+                    return Command::FAILURE;
+                }
+                if ($wizard === 'deferred' && !$isDryRun) {
+                    $this->error('[x] No local .env.production and no terminal to create one in.');
+                    $this->line('    Create it first (php artisan shipit:doctor can walk you through it), then deploy again.');
+                    return Command::FAILURE;
+                }
+            }
+
+            // Phase 4: Compile Frontend Assets Locally (Built exactly ONCE)
+            if (!$this->option('skip-assets')) {
+                if (!$this->compileFrontendAssetsLocally()) {
+                    return Command::FAILURE;
+                }
+            }
+
+            // Phase 5: Take the per-site deploy lock (real runs only)
             if (!$isDryRun) {
                 if (!$this->backups->acquireLock('push:hostinger on ' . gethostname())) {
                     $this->error('[x] Another ShipIt operation is already running against this site (deploy lock is held).');
@@ -125,6 +145,21 @@ class PushHostinger extends BasePushCommand
         return ($branchCheck->successful() && !empty(trim($branchCheck->output()))) ? trim($branchCheck->output()) : 'main';
     }
 
+    /**
+     * Is the server .env missing? Returns false when the check itself
+     * cannot run — the later provisioning phase handles that case as
+     * before, instead of the wizard firing on a guess.
+     */
+    private function serverEnvMissing(string $sshBase, string $absolutePath): bool
+    {
+        $check = Process::run("{$sshBase} " . escapeshellarg("test -f '{$absolutePath}/.env' && echo 'exists' || echo 'missing'"));
+        if (!$check->successful()) {
+            $this->debug('Server .env check did not run — leaving env provisioning to the deploy phase.');
+            return false;
+        }
+        return trim($check->output()) === 'missing';
+    }
+
     private function runPipeline(array $env, string $sshRepoUrl, string $branch, bool $isDryRun): int
     {
         $absolutePath = $this->remote->sitePath();
@@ -140,7 +175,7 @@ class PushHostinger extends BasePushCommand
         }
         $fromCommit = $serverHead ?: Journal::currentKnownCommit($preJournal);
 
-        // Phase 5: Route Sub-Wizard task loops to manage Git configurations
+        // Phase 6: Route Sub-Wizard task loops to manage Git configurations
         $this->line('<fg=yellow>[o] Routing tasks into local Git setup wizard...</>');
         $gitWizardCode = $this->call('push:github', array_filter([
             '--dry-run' => $isDryRun,
@@ -174,7 +209,7 @@ class PushHostinger extends BasePushCommand
         $isPartial = $this->option('only') || !empty($this->option('files'));
         $skipBackup = (bool) $this->option('skip-backup') || !(bool) config('shipit.backup.enabled', true);
 
-        // Phase 6: Journal the deploy, then snapshot production BEFORE changing it
+        // Phase 7: Journal the deploy, then snapshot production BEFORE changing it
         $this->backups->appendJournal([
             'type' => 'deploy',
             'status' => 'started',
@@ -205,14 +240,14 @@ class PushHostinger extends BasePushCommand
             $this->line("<fg=green>[+] Backup snapshot [{$backupId}] secured. Rollback point created.</>");
         }
 
-        // Phase 7: Server-to-GitHub Trust Verification Engine
+        // Phase 8: Server-to-GitHub Trust Verification Engine
         $finalServerRepoUrl = $this->resolveServerToGitHubTrust($env['repo_url'], $sshRepoUrl, $sshBase, $isDryRun);
         if (!$finalServerRepoUrl) {
             $this->backups->patchLastJournalEntry(['status' => 'failed', 'failed_step' => 'trust', 'message' => 'Server-to-GitHub trust could not be established.']);
             return Command::FAILURE;
         }
 
-        // Phase 8: Pre-deploy hooks (a failing hook aborts the deployment)
+        // Phase 9: Pre-deploy hooks (a failing hook aborts the deployment)
         foreach ((array) config('shipit.hooks.before', []) as $hook) {
             $this->line("<fg=yellow>[o] Running pre-deploy hook: {$hook}</>");
             $hookResult = $this->remote->run("cd '{$absolutePath}' && {$hook}", self::PROCESS_TIMEOUT);
@@ -224,7 +259,7 @@ class PushHostinger extends BasePushCommand
             }
         }
 
-        // Phase 9: Code Syncing & Production Pipeline Optimization Execution
+        // Phase 10: Code Syncing & Production Pipeline Optimization Execution
         $deployment = $this->executeRemoteDeployment($finalServerRepoUrl, $sshBase, $absolutePath, $env, $branch);
         if (!$deployment['ok']) {
             $this->backups->patchLastJournalEntry([
@@ -236,7 +271,7 @@ class PushHostinger extends BasePushCommand
             return Command::FAILURE;
         }
 
-        // Phase 10: Post-deploy hooks (warnings only — the deploy already succeeded)
+        // Phase 11: Post-deploy hooks (warnings only — the deploy already succeeded)
         foreach ((array) config('shipit.hooks.after', []) as $hook) {
             $this->line("<fg=yellow>[o] Running post-deploy hook: {$hook}</>");
             $hookResult = $this->remote->run("cd '{$absolutePath}' && {$hook}", self::PROCESS_TIMEOUT);
@@ -246,7 +281,7 @@ class PushHostinger extends BasePushCommand
             }
         }
 
-        // Phase 11: Journal success, prune old snapshots, optional local download
+        // Phase 12: Journal success, prune old snapshots, optional local download
         $this->backups->patchLastJournalEntry(['status' => 'success']);
         if ($backupId) {
             $this->backups->prune((int) config('shipit.backup.retention', 3), $backupId);
@@ -255,7 +290,7 @@ class PushHostinger extends BasePushCommand
             }
         }
 
-        // Phase 12: Post-deploy health check (+ instant rollback offer)
+        // Phase 13: Post-deploy health check (+ instant rollback offer)
         if (config('shipit.health_check.enabled', true)) {
             $this->runHealthCheckWithRollbackOffer($env, $branch, $previousRestorePoint);
         }

@@ -39,6 +39,15 @@ Working on 20 files but need one urgent fix live? `push:hostinger --only` (or `-
 
 One Hostinger account, many websites? Define named **site profiles** in `config/shipit.php` and deploy with `--site=blog`. Backups, journals, locks and rollbacks are strictly per-site — rolling back one site can never touch another. See [Multiple Websites](#-multiple-websites-on-one-hostinger-account).
 
+### 📄 .env.production Setup Wizard (new in 2.2)
+
+On the first deploy of a new app, ShipIt needs a local `.env.production` — the production values it uploads to the server as `.env`. Instead of discovering it missing halfway through the deploy, it now walks you through creating it in two steps, right after the server handshake and before anything is built, pushed or backed up:
+
+- **Step 1 — create the file:** copy your local `.env` and make it production-ready (`APP_ENV=production`, `APP_DEBUG=false`, `APP_URL=https://yourdomain.com`, existing `APP_KEY` kept, a fresh one generated only when missing), copy `.env.example` instead, or stop.
+- **Step 2 — set up the values:** the wizard checks the production values a deploy actually needs — database first (`DB_HOST` / `DB_DATABASE` / `DB_USERNAME` / `DB_PASSWORD`; on Hostinger the host is `localhost` and the values come from hPanel → Databases), then `APP_URL` and `APP_KEY`, everything else as warnings — and pauses so you can edit the file and press ENTER to re-check, continue anyway, or stop.
+
+The wizard also makes sure `.env.production` is in `.gitignore` so it can never be committed, never overwrites an existing file without confirmation, and never shows values — only key names. The same wizard is offered by `shipit:doctor` (which also scans an existing file for production safety) and by `shipit:env` (instead of a hard error when the file is missing). In `--dry-run` or a non-interactive run it never prompts: a dry run reports what it would do, and a real run fails with a clear message telling you to create the file first.
+
 ---
 
 ## 💾 Installation
@@ -182,6 +191,7 @@ Inspects everything a deployment depends on and prints a PASS / WARN / FAIL repo
 
 - **Local:** PHP ≥ 8.1, git binary, npm (when `package.json` exists), repository reachability
 - **Server (over SSH):** PHP version, `exec` / `symlink` / `proc_open` / `shell_exec` enabled, git, composer, `mysqldump`, site directory exists + writable, free disk space, free inodes, database reachable (and how many tables it sees)
+- **First deploy:** when the server has no `.env` yet, doctor also checks your local `.env.production` — that it exists and is production-safe (`APP_ENV`, `APP_DEBUG`, `APP_URL`, `APP_KEY`, database credentials) — and offers to create it with the setup wizard when it is missing
 
 Exit code is non-zero when any FAIL is found, so it can gate scripts. Run it after setting up a new site, or whenever a deploy misbehaves.
 
@@ -245,6 +255,8 @@ Pushes updates to a site's server `.env` after the first deploy (previously impo
 1. Compares your local `.env.production` with the server `.env` and shows an exact **key-by-key diff** — `+ ADD`, `~ CHANGE`, `- REMOVE` — values are never displayed.
 2. Backs up the current server `.env` on the server (`~/shipit-backups/<site>/env-backups/`).
 3. Uploads the new `.env`, clears the config cache, and records the sync in the journal.
+
+If no local `.env.production` exists, `shipit:env` offers the setup wizard instead of a hard error (unless you pass `--yes`, which keeps the old fail-fast behaviour for scripts).
 
 ---
 
@@ -408,27 +420,28 @@ Hooks example:
 `push:hostinger` runs these phases in strict sequence:
 
 1. **Environment Scan** — Resolves the site profile / `.env` values and validates every one of them (URL shape, port range, strict site-directory rules) before any network activity begins.
-2. **Asset Compilation** — Detects `package.json`, installs dependencies if needed, and runs a production build (unless `--skip-assets`).
-3. **Server Handshake** — Opens a passwordless SSH tunnel to Hostinger and confirms the target site directory exists.
-4. **Deploy Lock** — Takes the per-site lock so no second operation can interleave.
-5. **Git Commit & Push** — The `push:github` wizard: stages changes (or only your `--only` / `--files` selection), collects a commit message, verifies `origin` really is `GITHUB_REPO_URL`, and pushes.
-6. **Pre-Deploy Backup** — Snapshots the current production state (DB + uploads + assets + `.env` + manifest) and journals the deploy. Backup failure = deploy aborted, server untouched. Skipped only with `--skip-backup` (journaled as unprotected) or when disabled in config.
-7. **GitHub Trust Check** — Evaluates repository visibility. Generates and registers an RSA deploy key for private repos, or skips for public ones. If the token rescue fallback is used, **the token is scrubbed from the server's git configuration immediately after the sync** — it never persists on shared hosting.
-8. **Pre-Deploy Hooks** — Your `hooks.before` commands, on the server.
-9. **Sync** — Pulls (or clones) the code on the server, then streams the compiled asset bundle with an **atomic swap** (stage → verify → move into place).
-10. **Environment Provisioning** — Preserves the production `.env`. On first deploy, uploads `.env.production` (generating an `APP_KEY` **only if the file doesn't already carry one** — existing keys are never rotated silently) or falls back to `.env.example` with an interactive setup pause.
-11. **Optimize (circuit-breaker loop)** — Each step must pass or the pipeline halts:
+2. **Server Handshake** — Opens a passwordless SSH tunnel to Hostinger and confirms the target site directory exists. Moved before the asset build, so connection problems fail fast instead of after a minute of local compilation.
+3. **`.env.production` Setup Wizard (first deploy only)** — When the server has no `.env` yet and there is no local `.env.production`, the wizard offers to create it (copy `.env` and make it production-ready, copy `.env.example`, or stop) and then verifies the production values — database first — before the deploy continues. A stopped wizard leaves nothing half-deployed. In `--dry-run` it only reports what it would do.
+4. **Asset Compilation** — Detects `package.json`, installs dependencies if needed, and runs a production build (unless `--skip-assets`).
+5. **Deploy Lock** — Takes the per-site lock so no second operation can interleave.
+6. **Git Commit & Push** — The `push:github` wizard: stages changes (or only your `--only` / `--files` selection), collects a commit message, verifies `origin` really is `GITHUB_REPO_URL`, and pushes.
+7. **Pre-Deploy Backup** — Snapshots the current production state (DB + uploads + assets + `.env` + manifest) and journals the deploy. Backup failure = deploy aborted, server untouched. Skipped only with `--skip-backup` (journaled as unprotected) or when disabled in config.
+8. **GitHub Trust Check** — Evaluates repository visibility. Generates and registers an RSA deploy key for private repos, or skips for public ones. If the token rescue fallback is used, **the token is scrubbed from the server's git configuration immediately after the sync** — it never persists on shared hosting.
+9. **Pre-Deploy Hooks** — Your `hooks.before` commands, on the server.
+10. **Sync** — Pulls (or clones) the code on the server, then streams the compiled asset bundle with an **atomic swap** (stage → verify → move into place).
+11. **Environment Provisioning** — Preserves the production `.env`. On first deploy, uploads `.env.production` — the wizard in phase 3 already made sure it exists — generating an `APP_KEY` **only if the file doesn't already carry one** (existing keys are never rotated silently). Only if the upload itself fails does it fall back to `.env.example` with an interactive setup pause.
+12. **Optimize (circuit-breaker loop)** — Each step must pass or the pipeline halts:
     - `composer install --no-dev --optimize-autoloader`
     - **Maintenance mode ON** → `php artisan migrate --force` → (mode always brought back down afterwards, success or failure)
     - `php artisan storage:link` (with native-symlink fallback wizard if the host blocks it)
     - `ln -sfn public public_html`
     - `php artisan optimize:clear` → `php artisan optimize`
     - `php artisan queue:restart`
-12. **Post-Deploy Hooks** — Your `hooks.after` commands (warnings only on failure).
-13. **Journal + Prune** — The deploy is recorded as successful, old snapshots beyond retention are pruned, and the snapshot is downloaded locally if configured.
-14. **Health Check** — The site URL (plus any configured extra URLs) must answer with a 2xx/3xx status. On failure, ShipIt immediately offers a rollback to the previous known-good deploy.
+13. **Post-Deploy Hooks** — Your `hooks.after` commands (warnings only on failure).
+14. **Journal + Prune** — The deploy is recorded as successful, old snapshots beyond retention are pruned, and the snapshot is downloaded locally if configured.
+15. **Health Check** — The site URL (plus any configured extra URLs) must answer with a 2xx/3xx status. On failure, ShipIt immediately offers a rollback to the previous known-good deploy.
 
-If anything fails from phase 6 onward, you get a **Recovery Report**: which steps completed, whether migrations ran, whether maintenance mode may still be on, where the backup lives, and the exact recovery command.
+If anything fails from phase 7 onward, you get a **Recovery Report**: which steps completed, whether migrations ran, whether maintenance mode may still be on, where the backup lives, and the exact recovery command.
 
 ---
 

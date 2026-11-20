@@ -140,8 +140,11 @@ abstract class BasePushCommand extends Command
      * A blank answer returns the caller's $default — destructive actions in
      * ShipIt always pass $default = false (or demand typed confirmation),
      * so an accidental Enter can never authorize them.
+     *
+     * Public so the .env.production wizard (a support class, not a command)
+     * can ask its confirmation questions with the same rules.
      */
-    protected function confirmYN(string $question, bool $default = false): bool
+    public function confirmYN(string $question, bool $default = false): bool
     {
         $hint = $default ? '(Y/n)' : '(y/N)';
         $answer = $this->ask("{$question} {$hint}");
@@ -151,6 +154,17 @@ abstract class BasePushCommand extends Command
         }
 
         return in_array(strtolower(trim((string) $answer)), ['y', 'yes'], true);
+    }
+
+    /**
+     * Is this command running on a real terminal? Support classes (the
+     * .env.production wizard) use this to decide whether prompting is
+     * possible — a piped or scripted run must fail with a clear message
+     * instead of waiting on input that will never come.
+     */
+    public function isInteractiveRun(): bool
+    {
+        return $this->input->isInteractive();
     }
 
     /**

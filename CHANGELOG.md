@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-11-20
+
+The first-deploy release. A new Laravel app used to discover its missing `.env.production` halfway through the deploy — after assets were built, code was pushed and a backup was taken. Now ShipIt asks for it up front, in two steps, before any of that happens.
+
+### Added
+- **`.env.production` setup wizard (two steps).** On the first deploy — when the server has no `.env` yet and there is no local `.env.production` — ShipIt runs the wizard right after the SSH handshake, before assets, git push and backup:
+  - **Step 1 — create the file:** (1) copy the local `.env` and make it production-ready (`APP_ENV=production`, `APP_DEBUG=false`, `APP_URL=https://<site>`, existing `APP_KEY` kept, a fresh one generated only when missing, local-only toggles like `DEBUGBAR_ENABLED`/`TELESCOPE_ENABLED` switched off, comments and ordering preserved), (2) copy `.env.example`, or (3) stop. The changed keys are shown (never values) and confirmed before writing; an existing `.env.production` is never overwritten without confirmation.
+  - **Step 2 — set up the values:** scans the created file for the production values a deploy needs — database first (`DB_HOST`/`DB_DATABASE`/`DB_USERNAME`/`DB_PASSWORD`; on Hostinger the host is `localhost` and the values come from hPanel → Databases), then `APP_URL` and `APP_KEY`, everything else (mail, log level) as warnings — and pauses so you can edit the file and press ENTER to re-check, type `continue` to deploy anyway, or `stop` to quit.
+- **Gitignore guard.** The wizard makes sure `.env.production` is in `.gitignore` (appending or creating the file when needed), so production secrets can never be committed by `push:github`.
+- **Doctor checks `.env.production` on first deploys.** When the server has no `.env` yet, `shipit:doctor` warns when the local file is missing, scans an existing file for production safety (`APP_ENV`, `APP_DEBUG`, `APP_URL`, `APP_KEY`, database credentials), and offers to run the wizard inline.
+- **`shipit:env` offers the wizard instead of a hard error** when no local `.env.production` exists (unless `--yes` is passed, which keeps the old fail-fast error for scripts).
+- **Non-interactive safety.** The wizard never prompts in `--dry-run` (it reports what it would do) or in a piped/scripted run (the deploy fails with a clear message telling you to create the file first).
+- **Tests.** 24 new tests (14 unit, 10 feature) covering the transform, the placeholder/scan rules, the gitignore guard, and the wizard flows through `push:hostinger`, `shipit:doctor` and `shipit:env`. Suite is now 103 tests / 500 assertions, green on Laravel 10, 11, 12 and 13.
+
+### Changed
+- **Handshake before asset build.** `push:hostinger` now verifies the SSH connection before compiling frontend assets, so connection problems fail fast instead of after a minute of local compilation. The deploy lock is taken after the wizard (phase 5). The pipeline is now 15 phases — see the README.
+- The test `FakeServer` now simulates the SCP upload of `.env.production`, so first-deploy tests can assert what actually lands on the server (test-only change).
+
+### Fixed
+- **First deploy no longer discovers the missing `.env.production` late.** Previously it was only found at the env-provisioning phase — after assets were built, code was pushed to GitHub, a backup was taken and code was synced — and the fallback was to copy `.env.example` on the server and hand-edit it there. The wizard catches it at phase 3, before any of that work happens. (The server-side fallback remains as a safety net for a failed upload.)
+
 ## [2.1.0] - 2026-10-20
 
 The safety release. ShipIt can still deploy in under a minute — but now, when a deploy goes wrong, you have a way back.

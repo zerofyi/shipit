@@ -3,6 +3,8 @@
 namespace Zerofyi\ShipIt\Commands;
 
 use Zerofyi\ShipIt\Support\BackupService;
+use Zerofyi\ShipIt\Support\EnvFile;
+use Zerofyi\ShipIt\Support\EnvProductionWizard;
 use Zerofyi\ShipIt\Support\RemoteShell;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Process;
@@ -24,6 +26,9 @@ class DoctorCommand extends BasePushCommand
     private array $rows = [];
 
     private bool $hasFailure = false;
+
+    /** Set when the first-deploy .env.production check finds the file missing. */
+    private bool $envProductionMissing = false;
 
     public function handle(): int
     {
@@ -52,6 +57,18 @@ class DoctorCommand extends BasePushCommand
             }
         }
         $this->line('');
+
+        if ($this->envProductionMissing && $this->input->isInteractive()) {
+            if ($this->confirmYN(' Create .env.production now with the setup wizard?', false)) {
+                $result = EnvProductionWizard::run($this, $env);
+                if ($result === 'ready') {
+                    $this->line('<fg=green>[+] .env.production is ready — the warning above no longer applies.</>');
+                } else {
+                    $this->line('Skipped — create .env.production before the first deploy.');
+                }
+                $this->line('');
+            }
+        }
 
         if ($this->hasFailure) {
             $this->error('[x] Doctor found problems that will block or break deployments. Fix the FAIL items above.');
@@ -203,6 +220,7 @@ class DoctorCommand extends BasePushCommand
 
         if (($facts['env_exists'] ?? '0') !== '1') {
             $this->add('warn', 'Server .env present', 'not yet — the first deploy will provision it from .env.production', null);
+            $this->checkLocalEnvProduction($env);
             return;
         }
 
@@ -217,6 +235,34 @@ class DoctorCommand extends BasePushCommand
             );
         } else {
             $this->add('fail', 'Database reachable from the server', 'db-tool could not read database info', 'Check the DB_* values in the server .env (hPanel > Databases for the exact credentials).');
+        }
+    }
+
+    /**
+     * On a first deploy (no server .env yet) the local .env.production is
+     * what the server gets — check it exists and is production-safe.
+     * Only the doctor's warning rows are used here; a bad value warns,
+     * it never fails the pre-flight (the deploy-time wizard is the gate).
+     */
+    private function checkLocalEnvProduction(array $env): void
+    {
+        $prodPath = base_path('.env.production');
+        if (!file_exists($prodPath)) {
+            $this->add('warn', 'Local .env.production present', 'missing — the first deploy will offer to create it', 'Accept the setup wizard when offered, or create the file manually before deploying.');
+            $this->envProductionMissing = true;
+            return;
+        }
+
+        $scan = EnvProductionWizard::scan(EnvFile::parse((string) file_get_contents($prodPath)), (string) $env['site_dir']);
+        if ($scan['blockers'] === [] && $scan['warnings'] === []) {
+            $this->add('pass', 'Local .env.production looks production-ready', '', null);
+            return;
+        }
+        foreach ($scan['blockers'] as $key => $reason) {
+            $this->add('warn', "Local .env.production: {$key}", $reason, 'Fix the value in .env.production (never commit the file).');
+        }
+        foreach ($scan['warnings'] as $key => $reason) {
+            $this->add('warn', "Local .env.production: {$key}", $reason, null);
         }
     }
 }

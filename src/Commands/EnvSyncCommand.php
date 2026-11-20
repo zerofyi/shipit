@@ -4,6 +4,7 @@ namespace Zerofyi\ShipIt\Commands;
 
 use Zerofyi\ShipIt\Support\BackupService;
 use Zerofyi\ShipIt\Support\EnvFile;
+use Zerofyi\ShipIt\Support\EnvProductionWizard;
 use Zerofyi\ShipIt\Support\RemoteShell;
 use Illuminate\Console\Command;
 
@@ -36,9 +37,18 @@ class EnvSyncCommand extends BasePushCommand
 
         $localPath = base_path('.env.production');
         if (!file_exists($localPath)) {
-            $this->error('[x] No local .env.production file found at: ' . $localPath);
-            $this->line('    Create it with the production values for this site, then run the command again.');
-            return Command::FAILURE;
+            if (!$this->option('yes') && $this->input->isInteractive()
+                && $this->confirmYN(' No local .env.production found. Create it now with the setup wizard?', false)
+            ) {
+                if (EnvProductionWizard::run($this, $env) !== 'ready') {
+                    $this->line('Cancelled — the server .env was not changed.');
+                    return Command::SUCCESS;
+                }
+            } else {
+                $this->error('[x] No local .env.production file found at: ' . $localPath);
+                $this->line('    Create it with the production values for this site, then run the command again.');
+                return Command::FAILURE;
+            }
         }
         $localContent = (string) file_get_contents($localPath);
         $local = EnvFile::parse($localContent);

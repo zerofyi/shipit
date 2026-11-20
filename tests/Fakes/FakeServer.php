@@ -263,6 +263,18 @@ class FakeServer
             return Process::result('{"statements":42}' . "\n");
         }
 
+        // -- SCP upload of .env.production (first-deploy env provisioning) --
+        // The real scp copies the local file to the server's .env; mirror
+        // that here by reading the local file, so first-deploy tests can
+        // assert what actually landed on the server.
+        if (str_contains($cmd, 'scp -P') && str_contains($cmd, '.env.production') && str_contains($cmd, 'domains/') && str_contains($cmd, '/.env')) {
+            if (preg_match("#'([^']*\\.env\\.production)'#", $cmd, $m) && file_exists($m[1])) {
+                $this->uploadedEnv = (string) file_get_contents($m[1]);
+                $this->serverEnv = $this->uploadedEnv;
+            }
+            return Process::result('');
+        }
+
         // -- Everything else (trust, sync, pipeline, rollback steps) ------------
         return Process::result('');
     }
